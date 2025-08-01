@@ -4,6 +4,10 @@ FROM python:3.11-alpine
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
+# Create non-root user
+RUN addgroup -g 1000 appuser && \
+    adduser -D -s /bin/sh -u 1000 -G appuser appuser
+
 # Set work directory
 WORKDIR /app
 
@@ -18,6 +22,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy everything to the container
 COPY . /app/
+
+# Create logs directory and set permissions
+RUN mkdir -p /app/logs && \
+    chown -R appuser:appuser /app
+
+# Switch to non-root user
+USER appuser
 
 # Expose the port
 EXPOSE 5000
