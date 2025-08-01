@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block title %}Login - Skipping Stones{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8 col-lg-6">
+        <div class="card text-center p-5">
+            <div class="card-body">
+                <h1 class="display-4 mb-4">
+                    <i class="fas fa-sign-in-alt text-primary"></i>
+                    Login
+                </h1>
+                <p class="lead mb-4">
+                    Welcome to Skipping Stones! The game is available to play without authentication.
+                </p>
+                
+                <div class="text-center">
+                    <p class="text-muted mb-4">
+                        Authentication is not required to play the game.
+                    </p>
+                    <a href="{{ url_for('skipping_stones') }}" class="btn btn-primary btn-lg">
+                        <i class="fas fa-gamepad me-2"></i>Play Skipping Stones
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 

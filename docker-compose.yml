@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  skippingstones:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=production
+    restart: unless-stopped
+    volumes:
+      # Optional: mount logs directory if you want to persist logs
+      - ./logs:/app/logs 

@@ -1,0 +1,522 @@
+{% extends "base.html" %}
+
+{% block title %}Skipping Stones{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h3 class="mb-0">
+                        <i class="fas fa-circle me-2"></i>Skipping Stones
+                    </h3>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <h5>Game Board</h5>
+                            <p class="text-muted">Click a marble to select it, then click a valid destination to make a move.</p>
+                        </div>
+                        <div class="col-md-6 text-end">
+                            <button id="resetBtn" class="btn btn-warning">
+                                <i class="fas fa-redo me-2"></i>Reset Game
+                            </button>
+                            <button id="undoBtn" class="btn btn-secondary">
+                                <i class="fas fa-undo me-2"></i>Undo
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="game-board-container">
+                        <div id="gameBoard" class="game-board"></div>
+                    </div>
+                    
+                    <div class="row mt-3">
+                        <div class="col-md-6">
+                            <div class="card bg-light">
+                                <div class="card-body">
+                                    <h6 class="card-title">
+                                        <i class="fas fa-info-circle text-info me-2"></i>Game Rules
+                                    </h6>
+                                    <ul class="list-unstyled mb-0">
+                                        <li><i class="fas fa-check text-success me-2"></i>Click a marble to select it</li>
+                                        <li><i class="fas fa-check text-success me-2"></i>Click a valid destination to jump</li>
+                                        <li><i class="fas fa-check text-success me-2"></i>Marble must jump over another marble</li>
+                                        <li><i class="fas fa-check text-success me-2"></i>Jumped marble is removed</li>
+                                        <li><i class="fas fa-check text-success me-2"></i>Goal: Leave only one marble</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card bg-light">
+                                <div class="card-body">
+                                    <h6 class="card-title">
+                                        <i class="fas fa-trophy text-warning me-2"></i>Game Stats
+                                    </h6>
+                                    <div class="row text-center">
+                                        <div class="col-4">
+                                            <h4 id="movesCount" class="text-primary">0</h4>
+                                            <small class="text-muted">Moves</small>
+                                        </div>
+                                        <div class="col-4">
+                                            <h4 id="marblesLeft" class="text-success">0</h4>
+                                            <small class="text-muted">Marbles Left</small>
+                                        </div>
+                                        <div class="col-4">
+                                            <h4 id="gameStatus" class="text-info">Playing</h4>
+                                            <small class="text-muted">Status</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0">
+                        <i class="fas fa-puzzle-piece me-2"></i>Puzzle Configurations
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div id="configurations" class="config-list">
+                        <!-- Configurations will be loaded here -->
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card mt-3">
+                <div class="card-header">
+                    <h6 class="mb-0">
+                        <i class="fas fa-history text-secondary me-2"></i>Move History
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <div id="moveHistory" class="move-history">
+                        <p class="text-muted text-center">No moves yet</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.game-board-container {
+    display: flex;
+    justify-content: center;
+    margin: 20px 0;
+}
+
+.game-board {
+    display: grid;
+    grid-template-columns: repeat(9, 1fr);
+    gap: 2px;
+    background: #ddd;
+    padding: 10px;
+    border-radius: 8px;
+    max-width: 500px;
+    margin: 0 auto;
+}
+
+.cell {
+    width: 40px;
+    height: 40px;
+    border: 1px solid #999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: #f8f9fa;
+}
+
+.cell:hover {
+    background: #e9ecef;
+}
+
+.cell.marble {
+    background: #007bff;
+    border-radius: 50%;
+    color: white;
+    font-weight: bold;
+}
+
+.cell.selected {
+    background: #28a745;
+    border: 2px solid #20c997;
+}
+
+.cell.valid-move {
+    background: #ffc107;
+    border: 2px solid #fd7e14;
+}
+
+.cell.invalid {
+    background-color: #6c757d !important;
+    cursor: not-allowed !important;
+    opacity: 0.6 !important;
+    border-color: #495057 !important;
+}
+
+.config-item {
+    padding: 10px;
+    margin: 5px 0;
+    border: 1px solid #dee2e6;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.config-item:hover {
+    background: #f8f9fa;
+    border-color: #007bff;
+}
+
+.config-item.active {
+    background: #007bff;
+    color: white;
+    border-color: #0056b3;
+}
+
+.move-history {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.move-item {
+    padding: 5px;
+    margin: 2px 0;
+    background: #f8f9fa;
+    border-radius: 3px;
+    font-size: 0.9em;
+}
+
+@media (max-width: 768px) {
+    .game-board {
+        max-width: 100%;
+    }
+    
+    .cell {
+        width: 30px;
+        height: 30px;
+        font-size: 0.8em;
+    }
+}
+</style>
+
+<script>
+class SkippingStonesGame {
+    constructor() {
+        this.board = this.createBoard();
+        this.selectedMarble = null;
+        this.moveHistory = [];
+        this.currentConfig = 'level1';
+        this.configurations = {};
+        this.init();
+    }
+    
+    createBoard() {
+        const board = [];
+        for (let i = 0; i < 9; i++) {
+            board[i] = [];
+            for (let j = 0; j < 9; j++) {
+                board[i][j] = false; // false = no marble, true = marble
+            }
+        }
+        return board;
+    }
+    
+    async init() {
+        await this.loadConfigurations();
+        this.setupEventListeners();
+        this.loadConfiguration(this.currentConfig);
+        this.updateDisplay();
+    }
+    
+    async loadConfigurations() {
+        try {
+            const response = await fetch('/api/skipping-stones/configs');
+            this.configurations = await response.json();
+            this.renderConfigurations();
+        } catch (error) {
+            console.error('Failed to load configurations:', error);
+        }
+    }
+    
+    renderConfigurations() {
+        const container = document.getElementById('configurations');
+        container.innerHTML = '';
+        
+        Object.entries(this.configurations).forEach(([key, config]) => {
+            const div = document.createElement('div');
+            div.className = 'config-item';
+            div.innerHTML = `
+                <strong>${config.name}</strong><br>
+                <small class="text-muted">${config.description}</small>
+            `;
+            div.onclick = () => this.loadConfiguration(key);
+            container.appendChild(div);
+        });
+    }
+    
+    loadConfiguration(configKey) {
+        this.currentConfig = configKey;
+        this.resetBoard();
+        
+        const config = this.configurations[configKey];
+        if (config && config.marbles) {
+            config.marbles.forEach(([row, col]) => {
+                this.board[row][col] = true;
+            });
+        }
+        
+        this.updateDisplay();
+        this.clearHistory();
+        
+        // Update active configuration
+        document.querySelectorAll('.config-item').forEach(item => {
+            item.classList.remove('active');
+        });
+        event.target.closest('.config-item').classList.add('active');
+    }
+    
+    resetBoard() {
+        for (let i = 0; i < 9; i++) {
+            for (let j = 0; j < 9; j++) {
+                this.board[i][j] = false;
+            }
+        }
+        this.selectedMarble = null;
+    }
+    
+    setupEventListeners() {
+        document.getElementById('resetBtn').onclick = () => this.resetGame();
+        document.getElementById('undoBtn').onclick = () => this.undoMove();
+    }
+    
+    renderBoard() {
+        const boardElement = document.getElementById('gameBoard');
+        boardElement.innerHTML = '';
+        
+        for (let i = 0; i < 9; i++) {
+            for (let j = 0; j < 9; j++) {
+                const cell = document.createElement('div');
+                cell.className = 'cell';
+                cell.dataset.row = i;
+                cell.dataset.col = j;
+
+                // If the cell is in the top left 3x3 square, make it invalid
+                if (i < 3 && j < 3) {
+                    cell.classList.add('invalid');
+                }
+
+                // If the cell is in the bottom right 3x3 square, make it invalid
+                if (i > 5 && j > 5) {   
+                    cell.classList.add('invalid');
+                }
+
+                // If the cell is in the top right 3x3 square, make it invalid
+                if (i < 3 && j > 5) {
+                    cell.classList.add('invalid');  
+                }
+                // If the cell is in the bottom left 3x3 square, make it invalid
+                if (i > 5 && j < 3) {
+                    cell.classList.add('invalid');
+                }
+
+                
+                if (this.board[i][j]) {
+                    cell.classList.add('marble');
+                    cell.textContent = '●';
+                }
+                
+                if (this.selectedMarble && this.selectedMarble.row === i && this.selectedMarble.col === j) {
+                    cell.classList.add('selected');
+                }
+                
+                if (this.isValidMove(i, j) && !this.board[i][j]) {
+                    cell.classList.add('valid-move');
+                }
+                
+                cell.onclick = () => this.handleCellClick(i, j);
+                boardElement.appendChild(cell);
+            }
+        }
+    }
+    
+    handleCellClick(row, col) {
+        if (this.board[row][col]) {
+            // Clicked on a marble - select it
+            this.selectedMarble = { row, col };
+        } else if (this.selectedMarble && this.isValidMove(row, col)) {
+            // Clicked on a valid destination - make the move
+            this.makeMove(this.selectedMarble.row, this.selectedMarble.col, row, col);
+            this.selectedMarble = null;
+        }
+        
+        this.updateDisplay();
+    }
+    
+    isValidMove(toRow, toCol) {
+        if (!this.selectedMarble) return false;
+        
+        const { row: fromRow, col: fromCol } = this.selectedMarble;
+        
+        // Check if it's a valid jump (2 spaces in any direction)
+        const rowDiff = Math.abs(toRow - fromRow);
+        const colDiff = Math.abs(toCol - fromCol);
+        
+        if ((rowDiff === 2 && colDiff === 0) || (rowDiff === 0 && colDiff === 2)) {
+            // Check if there's a marble to jump over
+            const jumpRow = fromRow + (toRow - fromRow) / 2;
+            const jumpCol = fromCol + (toCol - fromCol) / 2;
+            
+            return this.board[jumpRow][jumpCol];
+        }
+        
+        return false;
+    }
+    
+    makeMove(fromRow, fromCol, toRow, toCol) {
+        // Remove the jumped marble
+        const jumpRow = fromRow + (toRow - fromRow) / 2;
+        const jumpCol = fromCol + (toCol - fromCol) / 2;
+        
+        this.board[fromRow][fromCol] = false;
+        this.board[jumpRow][jumpCol] = false;
+        this.board[toRow][toCol] = true;
+        
+        // Record the move
+        this.moveHistory.push({
+            from: { row: fromRow, col: fromCol },
+            to: { row: toRow, col: toCol },
+            jumped: { row: jumpRow, col: jumpCol }
+        });
+        
+        this.updateMoveHistory();
+        this.checkGameStatus();
+    }
+    
+    updateDisplay() {
+        this.renderBoard();
+        this.updateStats();
+    }
+    
+    updateStats() {
+        const marblesLeft = this.countMarbles();
+        const movesCount = this.moveHistory.length;
+        
+        document.getElementById('marblesLeft').textContent = marblesLeft;
+        document.getElementById('movesCount').textContent = movesCount;
+        
+        let status = 'Playing';
+        if (marblesLeft === 1) {
+            status = 'Won!';
+        } else if (marblesLeft > 1 && !this.hasValidMoves()) {
+            status = 'Stuck';
+        }
+        
+        document.getElementById('gameStatus').textContent = status;
+    }
+    
+    countMarbles() {
+        let count = 0;
+        for (let i = 0; i < 9; i++) {
+            for (let j = 0; j < 9; j++) {
+                if (this.board[i][j]) count++;
+            }
+        }
+        return count;
+    }
+    
+    hasValidMoves() {
+        for (let i = 0; i < 9; i++) {
+            for (let j = 0; j < 9; j++) {
+                if (this.board[i][j]) {
+                    // Check if this marble can make any valid moves
+                    const directions = [[-2, 0], [2, 0], [0, -2], [0, 2]];
+                    for (const [dRow, dCol] of directions) {
+                        const toRow = i + dRow;
+                        const toCol = j + dCol;
+                        if (toRow >= 0 && toRow < 9 && toCol >= 0 && toCol < 9) {
+                            if (!this.board[toRow][toCol]) {
+                                const jumpRow = i + dRow / 2;
+                                const jumpCol = j + dCol / 2;
+                                if (this.board[jumpRow][jumpCol]) {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+    
+    checkGameStatus() {
+        const marblesLeft = this.countMarbles();
+        if (marblesLeft === 1) {
+            // Game won - status will be updated in updateStats
+        } else if (marblesLeft > 1 && !this.hasValidMoves()) {
+            // Game stuck - status will be updated in updateStats
+        }
+    }
+    
+    updateMoveHistory() {
+        const container = document.getElementById('moveHistory');
+        container.innerHTML = '';
+        
+        if (this.moveHistory.length === 0) {
+            container.innerHTML = '<p class="text-muted text-center">No moves yet</p>';
+            return;
+        }
+        
+        this.moveHistory.forEach((move, index) => {
+            const div = document.createElement('div');
+            div.className = 'move-item';
+            div.textContent = `Move ${index + 1}: (${move.from.row},${move.from.col}) → (${move.to.row},${move.to.col})`;
+            container.appendChild(div);
+        });
+        
+        container.scrollTop = container.scrollHeight;
+    }
+    
+    resetGame() {
+        this.loadConfiguration(this.currentConfig);
+    }
+    
+    undoMove() {
+        if (this.moveHistory.length === 0) return;
+        
+        const lastMove = this.moveHistory.pop();
+        
+        // Restore the board state
+        this.board[lastMove.from.row][lastMove.from.col] = true;
+        this.board[lastMove.jumped.row][lastMove.jumped.col] = true;
+        this.board[lastMove.to.row][lastMove.to.col] = false;
+        
+        this.selectedMarble = null;
+        this.updateDisplay();
+        this.updateMoveHistory();
+    }
+    
+    clearHistory() {
+        this.moveHistory = [];
+        this.updateMoveHistory();
+    }
+}
+
+// Initialize the game when the page loads
+document.addEventListener('DOMContentLoaded', () => {
+    new SkippingStonesGame();
+});
+</script>
+{% endblock %} 
