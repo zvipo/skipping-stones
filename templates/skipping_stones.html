@@ -28,6 +28,9 @@
                     </div>
                     
                     <div class="game-board-container">
+                        <div class="level-indicator">
+                            <span class="level-badge">Level: <span id="currentLevel">1</span></span>
+                        </div>
                         <div id="gameBoard" class="game-board"></div>
                     </div>
                     
@@ -109,8 +112,26 @@
 <style>
 .game-board-container {
     display: flex;
-    justify-content: center;
+    flex-direction: column;
+    align-items: center;
     margin: 20px 0;
+}
+
+.level-indicator {
+    margin-bottom: 15px;
+}
+
+.level-badge {
+    background: linear-gradient(135deg, #007bff, #0056b3);
+    color: white;
+    padding: 10px 20px;
+    border-radius: 25px;
+    font-weight: bold;
+    font-size: 1.2em;
+    box-shadow: 0 4px 12px rgba(0, 123, 255, 0.4);
+    display: inline-block;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
 }
 
 .game-board {
@@ -182,6 +203,8 @@
     background: #007bff;
     color: white;
     border-color: #0056b3;
+    box-shadow: 0 2px 8px rgba(0, 123, 255, 0.3);
+    transform: translateY(-1px);
 }
 
 .move-history {
@@ -256,6 +279,9 @@ class SkippingStonesGame {
         Object.entries(this.configurations).forEach(([key, config]) => {
             const div = document.createElement('div');
             div.className = 'config-item';
+            if (key === this.currentConfig) {
+                div.classList.add('active');
+            }
             div.innerHTML = `
                 <strong>${config.name}</strong><br>
                 <small class="text-muted">${config.description}</small>
@@ -278,6 +304,10 @@ class SkippingStonesGame {
         
         this.updateDisplay();
         this.clearHistory();
+        
+        // Update level indicator
+        const levelNumber = configKey.replace('level', '');
+        document.getElementById('currentLevel').textContent = levelNumber;
         
         // Update active configuration
         document.querySelectorAll('.config-item').forEach(item => {
