@@ -43,7 +43,7 @@ def get_game_configs():
         },
         'level2': {
             'name': 'Level 2',
-            'description': 'Small triange',
+            'description': 'Small triangle',
             'marbles': [
                 (2, 4),
                 (3, 3), (3, 4), (3, 5),
