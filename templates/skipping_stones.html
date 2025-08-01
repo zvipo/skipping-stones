@@ -260,6 +260,9 @@ class SkippingStonesGame {
         this.setupEventListeners();
         this.loadConfiguration(this.currentConfig);
         this.updateDisplay();
+        
+        // Ensure level1 is highlighted by default
+        this.highlightActiveConfiguration();
     }
     
     async loadConfigurations() {
@@ -310,10 +313,7 @@ class SkippingStonesGame {
         document.getElementById('currentLevel').textContent = levelNumber;
         
         // Update active configuration
-        document.querySelectorAll('.config-item').forEach(item => {
-            item.classList.remove('active');
-        });
-        event.target.closest('.config-item').classList.add('active');
+        this.highlightActiveConfiguration();
     }
     
     resetBoard() {
@@ -540,6 +540,22 @@ class SkippingStonesGame {
     clearHistory() {
         this.moveHistory = [];
         this.updateMoveHistory();
+    }
+    
+    highlightActiveConfiguration() {
+        // Remove active class from all config items
+        document.querySelectorAll('.config-item').forEach(item => {
+            item.classList.remove('active');
+        });
+        
+        // Add active class to the current configuration
+        const configItems = document.querySelectorAll('.config-item');
+        configItems.forEach((item, index) => {
+            const configKey = Object.keys(this.configurations)[index];
+            if (configKey === this.currentConfig) {
+                item.classList.add('active');
+            }
+        });
     }
 }
 
