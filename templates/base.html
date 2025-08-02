@@ -31,6 +31,19 @@
             border-radius: 10px;
             border: none;
         }
+        
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .user-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            object-fit: cover;
+        }
     </style>
 </head>
 <body>
@@ -43,6 +56,28 @@
                 <a class="nav-link" href="https://github.com/zvipo/skipping-stones">
                     <i class="fab fa-github me-1"></i>Source Code
                 </a>
+                {% if current_user.is_authenticated %}
+                    <div class="nav-item">
+                        <div class="user-info">
+                            {% if current_user.picture %}
+                                <img src="{{ current_user.picture }}" alt="Profile" class="user-avatar">
+                            {% else %}
+                                <i class="fas fa-user"></i>
+                            {% endif %}
+                            <span class="text-light">{{ current_user.name or 'User' }}</span>
+                        </div>
+                    </div>
+                    <a class="nav-link btn btn-outline-light btn-sm ms-2" href="{{ url_for('switch_account') }}">
+                        <i class="fas fa-exchange-alt me-1"></i>Switch
+                    </a>
+                    <a class="nav-link btn btn-outline-light btn-sm ms-2" href="{{ url_for('logout') }}">
+                        <i class="fas fa-sign-out-alt me-1"></i>Logout
+                    </a>
+                {% else %}
+                    <a class="nav-link" href="{{ url_for('login') }}">
+                        <i class="fas fa-sign-in-alt me-1"></i>Login
+                    </a>
+                {% endif %}
             </div>
         </div>
     </nav>
