@@ -7,6 +7,7 @@ from datetime import datetime
 import jwt
 import json
 from database import db
+from functools import wraps
 
 # Load environment variables
 load_dotenv()
@@ -41,6 +42,15 @@ login_manager.login_view = 'login'
 
 # Simple in-memory user database (in production, use a real database)
 users_db = {}
+
+# Custom decorator for API endpoints that need authentication
+def api_login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not current_user.is_authenticated:
+            return jsonify({'error': 'Authentication required'}), 401
+        return f(*args, **kwargs)
+    return decorated_function
 
 # Simple user class for Flask-Login
 class User(UserMixin):
@@ -438,7 +448,7 @@ def get_game_configs():
     return configs
 
 @app.route('/api/game-state/save', methods=['POST'])
-@login_required
+@api_login_required
 def save_game_state():
     """Save the current game state for the authenticated user"""
     try:
@@ -502,6 +512,7 @@ def load_game_state():
         return jsonify({'error': 'Internal server error'}), 500
 
 @app.route('/api/game-state/complete-level', methods=['POST'])
+@api_login_required
 def complete_level():
     """Mark a level as completed for the authenticated user"""
     try:
@@ -511,16 +522,12 @@ def complete_level():
         if not level:
             return jsonify({'error': 'No level specified'}), 400
         
-        if current_user.is_authenticated:
-            success = db.mark_level_completed(current_user.id, level)
-            
-            if success:
-                return jsonify({'message': f'Level {level} marked as completed'}), 200
-            else:
-                return jsonify({'error': 'Failed to mark level as completed'}), 500
+        success = db.mark_level_completed(current_user.id, level)
+        
+        if success:
+            return jsonify({'message': f'Level {level} marked as completed'}), 200
         else:
-            # For non-authenticated users, just return success without saving
-            return jsonify({'message': f'Level {level} completed (not saved)'}), 200
+            return jsonify({'error': 'Failed to mark level as completed'}), 500
             
     except Exception as e:
         print(f"Error completing level: {e}")
@@ -537,7 +544,7 @@ def auth_status():
     }), 200
 
 @app.route('/api/game-state/save-all-levels', methods=['POST'])
-@login_required
+@api_login_required
 def save_all_levels_state():
     """Save all levels' state for the authenticated user"""
     try:

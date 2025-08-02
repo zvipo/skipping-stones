@@ -990,6 +990,10 @@ class SkippingStonesGame {
             
             if (response.ok) {
                 console.log('All levels state auto-saved successfully');
+            } else if (response.status === 401) {
+                // User is not authenticated, but don't redirect for auto-save
+                console.log('User not authenticated during auto-save, skipping');
+                return;
             } else {
                 const errorText = await response.text();
                 console.error('Failed to auto-save all levels state:', errorText);
@@ -1059,6 +1063,11 @@ class SkippingStonesGame {
                 setTimeout(() => {
                     this.updateSaveButtonState();
                 }, 2000);
+            } else if (response.status === 401) {
+                // User is not authenticated, redirect to login
+                console.log('User not authenticated, redirecting to login');
+                window.location.href = '/login';
+                return;
             } else {
                 const errorText = await response.text();
                 console.error('Failed to save all levels state:', errorText);
