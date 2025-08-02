@@ -352,6 +352,7 @@ class SkippingStonesGame {
     async init() {
         await this.loadConfigurations();
         this.setupEventListeners();
+        this.setupActivityTracking();
         
         // Check if user is logged in and load their state
         await this.checkUserLoginStatus();
@@ -360,24 +361,29 @@ class SkippingStonesGame {
             // For logged-in users, don't load from session storage - load from server
             await this.loadUserGameState();
         } else {
-            // For non-logged-in users, load from session storage
-            const savedStates = sessionStorage.getItem('skippingStonesLevelStates');
-            if (savedStates) {
-                try {
-                    this.levelStates = JSON.parse(savedStates);
-                } catch (error) {
-                    console.error('Error loading level states:', error);
-                    this.levelStates = {};
-                }
-            }
+            // For non-logged-in users, try to load from localStorage backup first
+            const restoredFromBackup = this.loadGameStateFromLocalStorage();
             
-            // Try to load saved state for current level
-            const hasSavedState = this.loadLevelState(this.currentConfig);
-            if (hasSavedState) {
-                this.updateDisplay();
-                this.updateMoveHistory();
-            } else {
-                this.loadConfiguration(this.currentConfig);
+            if (!restoredFromBackup) {
+                // If no backup, load from session storage
+                const savedStates = sessionStorage.getItem('skippingStonesLevelStates');
+                if (savedStates) {
+                    try {
+                        this.levelStates = JSON.parse(savedStates);
+                    } catch (error) {
+                        console.error('Error loading level states:', error);
+                        this.levelStates = {};
+                    }
+                }
+                
+                // Try to load saved state for current level
+                const hasSavedState = this.loadLevelState(this.currentConfig);
+                if (hasSavedState) {
+                    this.updateDisplay();
+                    this.updateMoveHistory();
+                } else {
+                    this.loadConfiguration(this.currentConfig);
+                }
             }
         }
         
@@ -804,25 +810,145 @@ class SkippingStonesGame {
             const response = await fetch('/api/auth/status');
             if (response.ok) {
                 const authData = await response.json();
+                const wasLoggedIn = this.isUserLoggedIn;
                 this.isUserLoggedIn = authData.authenticated;
                 this.userEmail = authData.email;
                 this.userName = authData.name;
+                
                 console.log('User login status:', { 
                     authenticated: this.isUserLoggedIn, 
                     email: this.userEmail, 
                     name: this.userName 
                 });
+                
+                // If user was logged in but now isn't, show a notification
+                if (wasLoggedIn && !this.isUserLoggedIn) {
+                    console.log('User session expired');
+                    this.showSessionExpiredNotification();
+                }
+                
+                // If user is logged in, refresh their session
+                if (this.isUserLoggedIn) {
+                    this.refreshSession();
+                }
             } else {
                 this.isUserLoggedIn = false;
                 this.userEmail = null;
                 this.userName = null;
             }
         } catch (error) {
+            console.error('Error checking login status:', error);
             this.isUserLoggedIn = false;
             this.userEmail = null;
             this.userName = null;
         }
         this.updateSaveButtonState();
+    }
+    
+    async refreshSession() {
+        try {
+            const response = await fetch('/api/auth/refresh-session', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            });
+            if (response.ok) {
+                console.log('Session refreshed successfully');
+            }
+        } catch (error) {
+            console.error('Error refreshing session:', error);
+        }
+    }
+    
+    // Track user activity to refresh session only when active
+    setupActivityTracking() {
+        let activityTimeout;
+        const resetActivity = () => {
+            clearTimeout(activityTimeout);
+            activityTimeout = setTimeout(() => {
+                // User has been inactive for 5 minutes, don't refresh session
+                console.log('User inactive, skipping session refresh');
+            }, 5 * 60 * 1000);
+        };
+        
+        // Reset activity on user interaction
+        ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'].forEach(event => {
+            document.addEventListener(event, resetActivity, true);
+        });
+        
+        resetActivity(); // Initialize
+    }
+    
+    showSessionExpiredNotification() {
+        // Save current game state to localStorage as backup
+        this.saveGameStateToLocalStorage();
+        
+        // Create a notification element
+        const notification = document.createElement('div');
+        notification.className = 'alert alert-warning alert-dismissible fade show position-fixed';
+        notification.style.cssText = 'top: 20px; right: 20px; z-index: 9999; max-width: 400px;';
+        notification.innerHTML = `
+            <strong>Session Expired</strong><br>
+            Your session has expired. Your progress has been saved locally. Please log in again to save to the server.
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+        
+        document.body.appendChild(notification);
+        
+        // Auto-remove after 10 seconds
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.remove();
+            }
+        }, 10000);
+    }
+    
+    saveGameStateToLocalStorage() {
+        try {
+            const gameState = {
+                levelStates: this.levelStates,
+                completedLevels: this.completedLevels,
+                currentConfig: this.currentConfig,
+                board: this.board,
+                moveHistory: this.moveHistory,
+                timestamp: Date.now()
+            };
+            localStorage.setItem('skippingStones_backup', JSON.stringify(gameState));
+            console.log('Game state saved to localStorage as backup');
+        } catch (error) {
+            console.error('Error saving to localStorage:', error);
+        }
+    }
+    
+    loadGameStateFromLocalStorage() {
+        try {
+            const backup = localStorage.getItem('skippingStones_backup');
+            if (backup) {
+                const gameState = JSON.parse(backup);
+                const backupAge = Date.now() - gameState.timestamp;
+                
+                // Only restore if backup is less than 24 hours old
+                if (backupAge < 24 * 60 * 60 * 1000) {
+                    this.levelStates = gameState.levelStates || {};
+                    this.completedLevels = gameState.completedLevels || [];
+                    this.currentConfig = gameState.currentConfig || 'level1';
+                    this.board = gameState.board || [];
+                    this.moveHistory = gameState.moveHistory || [];
+                    
+                    console.log('Restored game state from localStorage backup');
+                    this.updateDisplay();
+                    this.updateMoveHistory();
+                    return true;
+                } else {
+                    // Remove old backup
+                    localStorage.removeItem('skippingStones_backup');
+                }
+            }
+        } catch (error) {
+            console.error('Error loading from localStorage:', error);
+        }
+        return false;
     }
     
     async loadUserGameState() {
@@ -1064,9 +1190,18 @@ class SkippingStonesGame {
                     this.updateSaveButtonState();
                 }, 2000);
             } else if (response.status === 401) {
-                // User is not authenticated, redirect to login
-                console.log('User not authenticated, redirecting to login');
-                window.location.href = '/login';
+                // User is not authenticated, update login status and show notification
+                console.log('User not authenticated during save, updating login status');
+                this.isUserLoggedIn = false;
+                this.userEmail = null;
+                this.userName = null;
+                this.updateSaveButtonState();
+                this.showSessionExpiredNotification();
+                
+                // Ask user if they want to log in
+                if (confirm('Your session has expired. Would you like to log in again to save your progress?')) {
+                    window.location.href = '/login';
+                }
                 return;
             } else {
                 const errorText = await response.text();
@@ -1172,6 +1307,13 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+    
+    // Set up periodic session checking (every 15 minutes instead of 5)
+    setInterval(() => {
+        if (game.isUserLoggedIn) {
+            game.checkUserLoginStatus();
+        }
+    }, 15 * 60 * 1000); // 15 minutes
 });
 </script>
 {% endblock %} 

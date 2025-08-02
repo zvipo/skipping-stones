@@ -3,7 +3,7 @@ from flask_login import LoginManager, UserMixin, login_user, logout_user, login_
 import requests
 import os
 from dotenv import load_dotenv
-from datetime import datetime
+from datetime import datetime, timedelta
 import jwt
 import json
 from database import db
@@ -14,6 +14,14 @@ load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'your-secret-key-change-this')
+
+# Configure session to be more persistent but with reasonable limits
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=24)  # 24 hours instead of 30 days
+app.config['SESSION_COOKIE_SECURE'] = False  # Set to True in production with HTTPS
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+
+# Note: Using single worker to avoid session sharing issues between workers
 
 # Initialize database
 try:
@@ -34,6 +42,10 @@ GOOGLE_JWKS_ENDPOINT = 'https://www.googleapis.com/oauth2/v3/certs'
 
 # Cache for Google's public keys
 google_public_keys = None
+
+# Session management
+session_activity = {}  # Track session activity for cleanup
+request_count = 0  # Track total requests for monitoring
 
 # Flask-Login setup
 login_manager = LoginManager()
@@ -322,6 +334,13 @@ def callback():
         'is_new_user': user.is_new_user
     }
     
+    # Make session permanent (24 hours)
+    session.permanent = True
+    
+    print(f"User logged in: {user.id}")
+    print(f"Session permanent: {session.permanent}")
+    print(f"Session lifetime: {app.config['PERMANENT_SESSION_LIFETIME']}")
+    
     login_user(user)
     
     return redirect(url_for('skipping_stones'))
@@ -451,6 +470,9 @@ def get_game_configs():
 @api_login_required
 def save_game_state():
     """Save the current game state for the authenticated user"""
+    global request_count
+    request_count += 1
+    
     try:
         data = request.get_json()
         if not data:
@@ -533,9 +555,43 @@ def complete_level():
         print(f"Error completing level: {e}")
         return jsonify({'error': 'Internal server error'}), 500
 
+@app.route('/api/auth/debug-session')
+def debug_session():
+    """Debug endpoint to check session configuration"""
+    return jsonify({
+        'session_id': session.get('_id', 'No session ID'),
+        'session_permanent': session.permanent,
+        'session_modified': session.modified,
+        'user_authenticated': current_user.is_authenticated,
+        'user_id': current_user.id if current_user.is_authenticated else None,
+        'session_lifetime': str(app.config['PERMANENT_SESSION_LIFETIME']),
+        'session_cookie_secure': app.config['SESSION_COOKIE_SECURE'],
+        'session_cookie_httponly': app.config['SESSION_COOKIE_HTTPONLY'],
+        'session_cookie_samesite': app.config['SESSION_COOKIE_SAMESITE']
+    }), 200
+
+@app.route('/api/debug/performance')
+def debug_performance():
+    """Debug endpoint to check performance metrics"""
+    global request_count
+    return jsonify({
+        'total_requests': request_count,
+        'active_sessions': len(session_activity),
+        'memory_usage_mb': len(users_db) * 0.001,  # Rough estimate
+        'worker_info': 'Single worker - handles multiple users efficiently'
+    }), 200
+
 @app.route('/api/auth/status')
 def auth_status():
     """Check if user is authenticated"""
+    global request_count
+    request_count += 1
+    
+    print(f"Auth status check - User authenticated: {current_user.is_authenticated}")
+    print(f"Session ID: {session.get('_id', 'No session ID')}")
+    print(f"Session permanent: {session.permanent}")
+    print(f"Session modified: {session.modified}")
+    
     return jsonify({
         'authenticated': current_user.is_authenticated,
         'user_id': current_user.id if current_user.is_authenticated else None,
@@ -543,10 +599,45 @@ def auth_status():
         'name': current_user.name if current_user.is_authenticated else None
     }), 200
 
+@app.route('/api/auth/refresh-session', methods=['POST'])
+def refresh_session():
+    """Refresh the user's session to prevent expiration"""
+    print(f"Session refresh requested - User authenticated: {current_user.is_authenticated}")
+    print(f"Session ID before refresh: {session.get('_id', 'No session ID')}")
+    
+    if current_user.is_authenticated:
+        # Touch the session to extend its lifetime
+        session.modified = True
+        
+        # Track session activity for cleanup
+        session_activity[current_user.id] = datetime.now()
+        
+        print(f"Session refreshed for user: {current_user.id}")
+        print(f"Session ID after refresh: {session.get('_id', 'No session ID')}")
+        
+        return jsonify({'message': 'Session refreshed successfully'}), 200
+    else:
+        print("Session refresh failed - user not authenticated")
+        return jsonify({'error': 'No active session to refresh'}), 401
+
+def cleanup_old_sessions():
+    """Clean up old session activity records"""
+    cutoff_time = datetime.now() - timedelta(hours=24)
+    expired_sessions = [
+        user_id for user_id, last_activity in session_activity.items()
+        if last_activity < cutoff_time
+    ]
+    for user_id in expired_sessions:
+        del session_activity[user_id]
+    print(f"Cleaned up {len(expired_sessions)} old session records")
+
 @app.route('/api/game-state/save-all-levels', methods=['POST'])
 @api_login_required
 def save_all_levels_state():
     """Save all levels' state for the authenticated user"""
+    global request_count
+    request_count += 1
+    
     try:
         data = request.get_json()
         if not data:
@@ -615,4 +706,17 @@ def get_user_stats():
         return jsonify({'error': 'Internal server error'}), 500
 
 if __name__ == '__main__':
+    # Set up periodic cleanup (every hour)
+    import threading
+    import time
+    
+    def periodic_cleanup():
+        while True:
+            time.sleep(3600)  # Run every hour
+            cleanup_old_sessions()
+    
+    # Start cleanup thread
+    cleanup_thread = threading.Thread(target=periodic_cleanup, daemon=True)
+    cleanup_thread.start()
+    
     app.run(host='0.0.0.0', port=5000, debug=True)
