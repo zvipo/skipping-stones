@@ -18,6 +18,9 @@
                             <p class="text-muted">Click a marble to select it, then click a valid destination to make a move.</p>
                         </div>
                         <div class="col-md-6 text-end">
+                            <button id="shareBtn" class="btn btn-info" style="display: none;">
+                                <i class="fas fa-share-alt me-2"></i>Share Achievement
+                            </button>
                             <button id="saveBtn" class="btn btn-success">
                                 <i class="fas fa-save me-2"></i>Save Game
                             </button>
@@ -132,6 +135,40 @@
                         </div>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Share Modal -->
+<div class="modal fade" id="shareModal" tabindex="-1" aria-labelledby="shareModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="shareModalLabel">
+                    <i class="fas fa-share-alt me-2"></i>Share Your Achievement
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body text-center">
+                <div id="shareImageContainer">
+                    <p class="text-muted">Generating your achievement image...</p>
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="downloadShareBtn">
+                    <i class="fas fa-download me-2"></i>Download Image
+                </button>
+                <button type="button" class="btn btn-success" id="copyShareBtn">
+                    <i class="fas fa-copy me-2"></i>Copy to Clipboard
+                </button>
+                <button type="button" class="btn btn-info" id="nativeShareBtn" style="display: none;">
+                    <i class="fas fa-share me-2"></i>Share
+                </button>
             </div>
         </div>
     </div>
@@ -467,6 +504,9 @@ class SkippingStonesGame {
         // Update active configuration
         this.highlightActiveConfiguration();
         
+        // Check if current level is completed and show/hide share button accordingly
+        this.checkGameStatus();
+        
         // Update user stats
         this.updateUserStats();
     }
@@ -496,6 +536,9 @@ class SkippingStonesGame {
         // Update active configuration
         this.highlightActiveConfiguration();
         
+        // Check if current level is completed and show/hide share button accordingly
+        this.checkGameStatus();
+        
         // Save state if user is logged in
         if (this.isUserLoggedIn) {
             console.log('User is logged in, saving all levels state after config load...');
@@ -524,6 +567,9 @@ class SkippingStonesGame {
         document.getElementById('saveBtn').onclick = () => this.saveGame();
         document.getElementById('resetBtn').onclick = () => this.resetGame();
         document.getElementById('undoBtn').onclick = () => this.undoMove();
+        document.getElementById('shareBtn').onclick = () => this.showShareModal();
+        document.getElementById('downloadShareBtn').onclick = () => this.downloadShareImage();
+        document.getElementById('copyShareBtn').onclick = () => this.copyShareImage();
     }
     
     renderBoard() {
@@ -711,8 +757,18 @@ class SkippingStonesGame {
             if (this.isUserLoggedIn) {
                 this.markLevelCompleted(this.currentConfig);
             }
+            // Show share button for completed level
+            this.showShareButton();
         } else if (marblesLeft > 1 && !this.hasValidMoves()) {
             // Game stuck - status will be updated in updateStats
+            this.hideShareButton();
+        } else {
+            // Check if this level was previously completed
+            if (this.completedLevels.includes(this.currentConfig)) {
+                this.showShareButton();
+            } else {
+                this.hideShareButton();
+            }
         }
     }
     
@@ -745,6 +801,9 @@ class SkippingStonesGame {
         // Clear the level state for current level
         this.clearLevelState(this.currentConfig);
         this.loadConfiguration(this.currentConfig);
+        
+        // Hide share button when game is reset
+        this.hideShareButton();
         
         // Update user stats
         this.updateUserStats();
@@ -1006,6 +1065,9 @@ class SkippingStonesGame {
                 // Update active configuration
                 this.highlightActiveConfiguration();
                 
+                // Check if current level is completed and show share button
+                this.checkGameStatus();
+                
                 console.log('Successfully loaded all levels state');
             } else {
                 console.log('All levels load failed, trying fallback...');
@@ -1224,6 +1286,15 @@ class SkippingStonesGame {
                 console.log(`Added ${level} to completed levels`);
             }
             
+            // Store completion data for sharing
+            this.levelStates[level] = {
+                ...this.levelStates[level],
+                completed: true,
+                completionBoard: JSON.parse(JSON.stringify(this.board)), // Deep copy
+                completionMoves: JSON.parse(JSON.stringify(this.moveHistory)), // Deep copy
+                completionMarblesLeft: this.countMarbles()
+            };
+            
             // Save all levels state to update completed levels on server
             await this.saveGame();
             
@@ -1282,6 +1353,158 @@ class SkippingStonesGame {
                 saveBtn.classList.add('btn-success');
                 saveBtn.title = 'Save progress for all levels';
             }
+        }
+    }
+    
+    showShareButton() {
+        const shareBtn = document.getElementById('shareBtn');
+        shareBtn.style.display = 'inline-block';
+        shareBtn.classList.add('btn-info');
+        shareBtn.classList.remove('btn-secondary');
+    }
+    
+    hideShareButton() {
+        const shareBtn = document.getElementById('shareBtn');
+        shareBtn.style.display = 'none';
+    }
+    
+    async showShareModal() {
+        if (!this.isUserLoggedIn) {
+            alert('Please log in to share your achievements.');
+            return;
+        }
+        
+        // Check if level is completed
+        if (!this.completedLevels.includes(this.currentConfig)) {
+            alert('This level has not been completed yet. Complete the level to share your achievement!');
+            return;
+        }
+        
+        // Show modal
+        const modal = new bootstrap.Modal(document.getElementById('shareModal'));
+        modal.show();
+        
+        try {
+            // Use completion data if available, otherwise use current state
+            const levelState = this.levelStates[this.currentConfig];
+            let boardState = this.board;
+            let movesCount = this.moveHistory.length;
+            let marblesLeft = this.countMarbles();
+            
+            // If we have stored completion data, use that for more accurate sharing
+            if (levelState && levelState.completed && levelState.completionBoard) {
+                boardState = levelState.completionBoard;
+                movesCount = levelState.completionMoves ? levelState.completionMoves.length : this.moveHistory.length;
+                marblesLeft = levelState.completionMarblesLeft || 1;
+            }
+            
+            // Generate share image
+            const response = await fetch('/api/share/level-completed', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    level: this.currentConfig,
+                    board_state: boardState,
+                    moves_count: movesCount,
+                    marbles_left: marblesLeft
+                })
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                this.displayShareImage(data.image_data, data.level_name);
+            } else {
+                throw new Error('Failed to generate share image');
+            }
+        } catch (error) {
+            console.error('Error generating share image:', error);
+            document.getElementById('shareImageContainer').innerHTML = 
+                '<p class="text-danger">Failed to generate share image. Please try again.</p>';
+        }
+    }
+    
+    displayShareImage(imageData, levelName) {
+        const container = document.getElementById('shareImageContainer');
+        container.innerHTML = `
+            <h6 class="mb-3">🎯 ${levelName} Completed!</h6>
+            <img src="data:image/png;base64,${imageData}" 
+                 alt="Shareable achievement image" 
+                 class="img-fluid rounded shadow" 
+                 style="max-width: 100%; max-height: 500px;">
+            <p class="text-muted mt-3">Share this image to show off your achievement!</p>
+        `;
+        
+        // Store image data for download/copy
+        this.currentShareImageData = imageData;
+    }
+    
+    downloadShareImage() {
+        if (!this.currentShareImageData) return;
+        
+        const link = document.createElement('a');
+        link.href = `data:image/png;base64,${this.currentShareImageData}`;
+        link.download = `skipping-stones-achievement-${this.currentConfig}.png`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+    
+    async copyShareImage() {
+        if (!this.currentShareImageData) return;
+        
+        try {
+            // Check if clipboard API is available
+            if (!navigator.clipboard) {
+                throw new Error('Clipboard API not supported');
+            }
+            
+            // Convert base64 to blob
+            const response = await fetch(`data:image/png;base64,${this.currentShareImageData}`);
+            const blob = await response.blob();
+            
+            // Try to copy to clipboard
+            await navigator.clipboard.write([
+                new ClipboardItem({
+                    'image/png': blob
+                })
+            ]);
+            
+            // Show success feedback
+            const copyBtn = document.getElementById('copyShareBtn');
+            const originalText = copyBtn.innerHTML;
+            copyBtn.innerHTML = '<i class="fas fa-check me-2"></i>Copied!';
+            copyBtn.classList.remove('btn-success');
+            copyBtn.classList.add('btn-success');
+            
+            setTimeout(() => {
+                copyBtn.innerHTML = originalText;
+            }, 2000);
+            
+        } catch (error) {
+            console.error('Error copying image:', error);
+            
+            // Show mobile-friendly error message
+            const errorMessage = navigator.userAgent.match(/Mobile|Android|iPhone|iPad/) 
+                ? 'Copy to clipboard is not supported on mobile devices. Please use the download button instead.'
+                : 'Failed to copy image to clipboard. Please try downloading instead.';
+            
+            // Show error in modal instead of alert
+            const container = document.getElementById('shareImageContainer');
+            const currentContent = container.innerHTML;
+            container.innerHTML = `
+                ${currentContent}
+                <div class="alert alert-warning mt-3">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    ${errorMessage}
+                </div>
+            `;
+            
+            // Hide error after 5 seconds
+            setTimeout(() => {
+                container.innerHTML = currentContent;
+            }, 5000);
         }
     }
 }

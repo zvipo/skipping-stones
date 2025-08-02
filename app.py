@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, send_file
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 import requests
 import os
@@ -8,6 +8,9 @@ import jwt
 import json
 from database import db
 from functools import wraps
+from PIL import Image, ImageDraw, ImageFont
+import io
+import base64
 
 # Load environment variables
 load_dotenv()
@@ -51,6 +54,17 @@ request_count = 0  # Track total requests for monitoring
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
+
+# Security headers middleware
+@app.after_request
+def add_security_headers(response):
+    """Add security headers to all responses"""
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; img-src 'self' data: https:; font-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com;"
+    return response
 
 # Simple in-memory user database (in production, use a real database)
 users_db = {}
@@ -704,6 +718,261 @@ def get_user_stats():
     except Exception as e:
         print(f"Error getting user stats: {e}")
         return jsonify({'error': 'Internal server error'}), 500
+
+@app.route('/api/share/level-completed', methods=['POST'])
+@api_login_required
+def generate_share_image():
+    """Generate a shareable image for a completed level"""
+    try:
+        print("Starting share image generation...")
+        data = request.get_json()
+        
+        if not data:
+            print("Error: No JSON data received")
+            return jsonify({'error': 'No data received'}), 400
+            
+        level = data.get('level')
+        board_state = data.get('board_state', [])
+        moves_count = data.get('moves_count', 0)
+        marbles_left = data.get('marbles_left', 1)
+        
+        print(f"Received data: level={level}, moves={moves_count}, marbles={marbles_left}")
+        print(f"Board state type: {type(board_state)}, length: {len(board_state) if board_state else 0}")
+        print(f"Current user: {current_user.name if current_user.is_authenticated else 'Not authenticated'}")
+        
+        if not level:
+            print("Error: No level specified")
+            return jsonify({'error': 'No level specified'}), 400
+        
+        # Get level configuration
+        configs = get_game_configs()
+        level_config = configs.get(level, {})
+        level_name = level_config.get('name', level)
+        level_description = level_config.get('description', '')
+        
+        print(f"Level config: {level_name} - {level_description}")
+        
+        # Create the share image
+        print("Creating share image...")
+        image_data = create_share_image(
+            level_name=level_name,
+            level_description=level_description,
+            board_state=board_state,
+            moves_count=moves_count,
+            marbles_left=marbles_left,
+            user_name=current_user.name,
+            user_email=current_user.email,
+            level=level
+        )
+        
+        print(f"Image created successfully, size: {len(image_data)} bytes")
+        
+        # Convert to base64 for easy sharing
+        image_base64 = base64.b64encode(image_data).decode('utf-8')
+        
+        print("Share image generation completed successfully")
+        
+        return jsonify({
+            'image_data': image_base64,
+            'level': level,
+            'level_name': level_name
+        }), 200
+        
+    except Exception as e:
+        print(f"Error generating share image: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Internal server error: {str(e)}'}), 500
+
+def create_share_image(level_name, level_description, board_state, moves_count, marbles_left, user_name, user_email, level):
+    """Create a shareable image for a completed level"""
+    try:
+        print(f"Creating image with dimensions 800x800")
+        print(f"Input parameters: level_name={level_name}, level={level}, user_name={user_name}")
+        print(f"Board state: {board_state}")
+        print(f"Level description: {level_description}")
+        
+        # Image dimensions - make it square
+        width, height = 800, 800
+        
+        # Create image with gradient background
+        image = Image.new('RGB', (width, height), color='#1a1a2e')
+        draw = ImageDraw.Draw(image)
+        
+        print("Image created successfully")
+        
+        # Test basic drawing
+        try:
+            draw.rectangle([0, 0, width, height], fill='#1a1a2e')
+            print("Basic rectangle drawn successfully")
+        except Exception as e:
+            print(f"Error drawing basic rectangle: {e}")
+            raise e
+        
+        # Use default fonts for reliability across different environments
+        # Create a simple font that works across all environments
+        try:
+            # Try to use a basic font that should be available
+            title_font = ImageFont.load_default()
+            subtitle_font = ImageFont.load_default()
+            body_font = ImageFont.load_default()
+            small_font = ImageFont.load_default()
+        except Exception as e:
+            print(f"Font loading failed: {e}")
+            # Fallback to basic text drawing without custom fonts
+            title_font = None
+            subtitle_font = None
+            body_font = None
+            small_font = None
+        
+        # Draw gradient background
+        try:
+            for y in range(height):
+                r = int(26 + (y / height) * 20)
+                g = int(26 + (y / height) * 30)
+                b = int(46 + (y / height) * 40)
+                draw.line([(0, y), (width, y)], fill=(r, g, b))
+            print("Gradient background drawn successfully")
+        except Exception as e:
+            print(f"Error drawing gradient background: {e}")
+            # Fallback to solid background
+            draw.rectangle([0, 0, width, height], fill='#1a1a2e')
+            print("Using solid background as fallback")
+        
+        # Title
+        title_text = f"{level_name} Completed!"
+        if title_font:
+            title_bbox = draw.textbbox((0, 0), title_text, font=title_font)
+            title_width = title_bbox[2] - title_bbox[0]
+        else:
+            title_width = len(title_text) * 10  # Approximate width
+        title_x = (width - title_width) // 2
+        draw.text((title_x, 40), title_text, fill='#ffffff', font=title_font)
+        
+        # Subtitle
+        subtitle_text = f"Puzzle: {level_description}"
+        if subtitle_font:
+            subtitle_bbox = draw.textbbox((0, 0), subtitle_text, font=subtitle_font)
+            subtitle_width = subtitle_bbox[2] - subtitle_bbox[0]
+        else:
+            subtitle_width = len(subtitle_text) * 8  # Approximate width
+        subtitle_x = (width - subtitle_width) // 2
+        draw.text((subtitle_x, 80), subtitle_text, fill='#cccccc', font=subtitle_font)
+        
+        # Draw the game board - make it bigger
+        board_size = 500
+        board_x = (width - board_size) // 2
+        board_y = 120
+        
+        # Board background
+        draw.rectangle([board_x-10, board_y-10, board_x+board_size+10, board_y+board_size+10], 
+                      fill='#2d2d44', outline='#4a4a6a', width=3)
+        
+        # Draw board cells
+        cell_size = board_size // 9
+        
+        # Get initial configuration for this level
+        configs = get_game_configs()
+        level_config = configs.get(level, {})
+        initial_marbles = level_config.get('marbles', [])
+        
+        for i in range(9):
+            for j in range(9):
+                x = board_x + j * cell_size
+                y = board_y + i * cell_size
+                
+                # Determine cell color
+                if i < 3 and j < 3 or i > 5 and j > 5 or i < 3 and j > 5 or i > 5 and j < 3:
+                    # Invalid cells
+                    cell_color = '#1a1a2e'
+                else:
+                    cell_color = '#f8f9fa'
+                
+                # Draw cell
+                draw.rectangle([x, y, x+cell_size, y+cell_size], 
+                             fill=cell_color, outline='#dee2e6', width=1)
+                
+                # Draw initial marble positions as lightly shaded squares
+                if (i, j) in initial_marbles:
+                    # Draw medium light orange square for initial marble positions
+                    draw.rectangle([x+2, y+2, x+cell_size-2, y+cell_size-2], 
+                                 fill='#ffd8a8', outline='#ffc078', width=1)
+                
+                # Draw current marble if present
+                if i < len(board_state) and j < len(board_state[i]) and board_state[i][j]:
+                    marble_radius = cell_size // 3
+                    marble_x = x + cell_size // 2
+                    marble_y = y + cell_size // 2
+                    
+                    # Draw marble with gradient effect
+                    for r in range(marble_radius, 0, -1):
+                        alpha = int(255 * (1 - (marble_radius - r) / marble_radius))
+                        color = (0, 123, 255, alpha)
+                        draw.ellipse([marble_x-r, marble_y-r, marble_x+r, marble_y+r], 
+                                   fill=color, outline='#0056b3', width=2)
+        
+        # Stats section
+        stats_y = board_y + board_size + 20
+        
+        # Stats background - make it tighter
+        stats_bg_y = stats_y - 8
+        stats_bg_height = 80
+        draw.rectangle([80, stats_bg_y, width-80, stats_bg_y+stats_bg_height], 
+                      fill='#2d2d44', outline='#4a4a6a', width=2)
+        
+        # Calculate initial marbles count from level config
+        configs = get_game_configs()
+        level_config = configs.get(level, {})
+        initial_marbles = level_config.get('marbles', [])
+        initial_marbles_count = len(initial_marbles)
+        
+        # Stats text
+        stats_text = [
+            f"Puzzle Size: {initial_marbles_count}",
+            f"Player: {user_name or 'Anonymous'}"
+        ]
+        
+        for i, text in enumerate(stats_text):
+            y_pos = stats_y + i * 30
+            draw.text((100, y_pos), text, fill='#ffffff', font=body_font)
+        
+        # Link section
+        link_y = stats_bg_y + stats_bg_height + 20
+        
+        # Link text
+        link_text = "https://skipping-stones.onrender.com"
+        if body_font:
+            link_bbox = draw.textbbox((0, 0), link_text, font=body_font)
+            link_width = link_bbox[2] - link_bbox[0]
+        else:
+            link_width = len(link_text) * 6  # Approximate width
+        link_x = (width - link_width) // 2
+        draw.text((link_x, link_y), link_text, fill='#007bff', font=body_font)
+        
+        # Footer
+        footer_text = "Skipping Stones Puzzle Game"
+        if small_font:
+            footer_bbox = draw.textbbox((0, 0), footer_text, font=small_font)
+            footer_width = footer_bbox[2] - footer_bbox[0]
+        else:
+            footer_width = len(footer_text) * 5  # Approximate width
+        footer_x = (width - footer_width) // 2
+        draw.text((footer_x, height - 30), footer_text, fill='#888888', font=small_font)
+        
+        # Convert to bytes
+        img_byte_arr = io.BytesIO()
+        image.save(img_byte_arr, format='PNG')
+        img_byte_arr.seek(0)
+        
+        print("Image saved to bytes successfully")
+        return img_byte_arr.getvalue()
+        
+    except Exception as e:
+        print(f"Error in create_share_image: {e}")
+        print(f"Error type: {type(e).__name__}")
+        import traceback
+        traceback.print_exc()
+        raise e
 
 if __name__ == '__main__':
     # Set up periodic cleanup (every hour)
