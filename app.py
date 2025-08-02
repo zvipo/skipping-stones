@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 import requests
 import os
@@ -6,12 +6,20 @@ from dotenv import load_dotenv
 from datetime import datetime
 import jwt
 import json
+from database import db
 
 # Load environment variables
 load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'your-secret-key-change-this')
+
+# Initialize database
+try:
+    db.create_table_if_not_exists()
+    print("Database initialized successfully")
+except Exception as e:
+    print(f"Database initialization error: {e}")
 
 # Google OIDC configuration
 GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
@@ -311,6 +319,17 @@ def callback():
 @app.route('/logout')
 @login_required
 def logout():
+    # Save current game state before logout
+    if current_user.is_authenticated:
+        try:
+            # Get current game state from session or request
+            game_state = session.get('current_game_state', {})
+            if game_state:
+                db.save_game_state(current_user.id, game_state)
+                print(f"Saved game state for user {current_user.id} on logout")
+        except Exception as e:
+            print(f"Error saving game state on logout: {e}")
+    
     logout_user()
     session.clear()
     flash('You have been logged out', 'info')
@@ -417,6 +436,174 @@ def get_game_configs():
         }
     }
     return configs
+
+@app.route('/api/game-state/save', methods=['POST'])
+@login_required
+def save_game_state():
+    """Save the current game state for the authenticated user"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        # Save to database
+        success = db.save_game_state(current_user.id, data)
+        
+        if success:
+            # Also save to session for immediate access
+            session['current_game_state'] = data
+            return jsonify({'message': 'Game state saved successfully'}), 200
+        else:
+            return jsonify({'error': 'Failed to save game state'}), 500
+            
+    except Exception as e:
+        print(f"Error saving game state: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+@app.route('/api/game-state/load')
+def load_game_state():
+    """Load the game state for the authenticated user"""
+    try:
+        if current_user.is_authenticated:
+            game_state = db.load_game_state(current_user.id)
+            
+            if game_state:
+                # Save to session for immediate access
+                session['current_game_state'] = game_state
+                return jsonify(game_state), 200
+            else:
+                # Return default state for new users
+                default_state = {
+                    'current_level': 'level1',
+                    'board_state': [],
+                    'move_history': [],
+                    'marbles_left': 0,
+                    'moves_count': 0,
+                    'game_status': 'Playing',
+                    'completed_levels': []
+                }
+                session['current_game_state'] = default_state
+                return jsonify(default_state), 200
+        else:
+            # Return default state for non-authenticated users
+            default_state = {
+                'current_level': 'level1',
+                'board_state': [],
+                'move_history': [],
+                'marbles_left': 0,
+                'moves_count': 0,
+                'game_status': 'Playing',
+                'completed_levels': []
+            }
+            return jsonify(default_state), 200
+            
+    except Exception as e:
+        print(f"Error loading game state: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+@app.route('/api/game-state/complete-level', methods=['POST'])
+def complete_level():
+    """Mark a level as completed for the authenticated user"""
+    try:
+        data = request.get_json()
+        level = data.get('level')
+        
+        if not level:
+            return jsonify({'error': 'No level specified'}), 400
+        
+        if current_user.is_authenticated:
+            success = db.mark_level_completed(current_user.id, level)
+            
+            if success:
+                return jsonify({'message': f'Level {level} marked as completed'}), 200
+            else:
+                return jsonify({'error': 'Failed to mark level as completed'}), 500
+        else:
+            # For non-authenticated users, just return success without saving
+            return jsonify({'message': f'Level {level} completed (not saved)'}), 200
+            
+    except Exception as e:
+        print(f"Error completing level: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+@app.route('/api/auth/status')
+def auth_status():
+    """Check if user is authenticated"""
+    return jsonify({
+        'authenticated': current_user.is_authenticated,
+        'user_id': current_user.id if current_user.is_authenticated else None
+    }), 200
+
+@app.route('/api/game-state/save-all-levels', methods=['POST'])
+@login_required
+def save_all_levels_state():
+    """Save all levels' state for the authenticated user"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        # Save to database
+        success = db.save_all_levels_state(current_user.id, data)
+        
+        if success:
+            return jsonify({'message': 'All levels state saved successfully'}), 200
+        else:
+            return jsonify({'error': 'Failed to save all levels state'}), 500
+            
+    except Exception as e:
+        print(f"Error saving all levels state: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+@app.route('/api/game-state/load-all-levels')
+def load_all_levels_state():
+    """Load all levels' state for the authenticated user"""
+    try:
+        if current_user.is_authenticated:
+            all_levels_state = db.load_all_levels_state(current_user.id)
+            
+            if all_levels_state:
+                return jsonify(all_levels_state), 200
+            else:
+                # Return default state for new users
+                default_state = {
+                    'level_states': {},
+                    'completed_levels': [],
+                    'current_level': 'level1',
+                    'last_updated': None
+                }
+                return jsonify(default_state), 200
+        else:
+            # Return default state for non-authenticated users
+            default_state = {
+                'level_states': {},
+                'completed_levels': [],
+                'current_level': 'level1',
+                'last_updated': None
+            }
+            return jsonify(default_state), 200
+            
+    except Exception as e:
+        print(f"Error loading all levels state: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+@app.route('/api/user/stats')
+def get_user_stats():
+    """Get user statistics"""
+    try:
+        if current_user.is_authenticated:
+            stats = db.get_user_stats(current_user.id)
+            return jsonify(stats), 200
+        else:
+            # Return empty stats for non-authenticated users
+            return jsonify({
+                'completed_levels': 0,
+                'total_levels': 7,
+                'progress_percentage': 0
+            }), 200
+    except Exception as e:
+        print(f"Error getting user stats: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

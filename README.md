@@ -8,6 +8,10 @@ A simple Flask web application for playing the Skipping Stones game with a moder
 - 🎨 Modern, responsive Bootstrap UI
 - 📱 Mobile-friendly design
 - 🔐 Optional Google OIDC authentication
+- 💾 AWS DynamoDB state persistence
+- 📊 User progress tracking
+- 🔄 Automatic game state saving
+- 🏆 Level completion tracking
 
 ## Prerequisites
 
@@ -22,9 +26,9 @@ A simple Flask web application for playing the Skipping Stones game with a moder
 pip install -r requirements.txt
 ```
 
-### 2. Environment Setup (Optional)
+### 2. Environment Setup
 
-For Google OIDC authentication, create a `.env` file with the following variables:
+Create a `.env` file with the following variables:
 
 ```bash
 # Flask Secret Key (required for sessions)
@@ -35,6 +39,14 @@ SECRET_KEY=your-secret-key-change-this
 # Create a new project and enable Google+ API
 GOOGLE_CLIENT_ID=your-google-client-id
 GOOGLE_CLIENT_SECRET=your-google-client-secret
+GOOGLE_REDIRECT_URI=http://localhost:5000/callback
+
+# AWS Configuration (for state persistence)
+# See SETUP.md for detailed AWS setup instructions
+AWS_ACCESS_KEY_ID=your-aws-access-key-id
+AWS_SECRET_ACCESS_KEY=your-aws-secret-access-key
+AWS_DEFAULT_REGION=us-east-1
+DYNAMODB_TABLE_NAME=skipping-stones-game-state
 ```
 
 **To set up Google OIDC:**
@@ -44,6 +56,9 @@ GOOGLE_CLIENT_SECRET=your-google-client-secret
 4. Create OAuth 2.0 credentials
 5. Add your domain to authorized redirect URIs (e.g., `https://yourdomain.com/callback`)
 6. Copy the Client ID and Client Secret to your `.env` file
+
+**To set up AWS DynamoDB:**
+See [SETUP.md](SETUP.md) for detailed instructions on configuring AWS credentials and DynamoDB.
 
 ### 3. Run the Application
 
@@ -58,14 +73,17 @@ The application will be available at `http://localhost:5000`
 1. **Home Page**: Visit the homepage to start playing the game
 2. **Authentication**: Click "Login" in the navigation bar to sign in with Google (optional)
 3. **Game**: The game is available to play with or without authentication
+4. **State Persistence**: When logged in, your game state is automatically saved and restored
+5. **Progress Tracking**: Completed levels are tracked and displayed with checkmarks
 
 ## Project Structure
 
 ```
 skippingstones/
 ├── app.py                 # Main Flask application
+├── database.py           # DynamoDB database operations
 ├── requirements.txt       # Python dependencies
-├── env.example           # Environment variables template
+├── SETUP.md             # AWS setup instructions
 ├── README.md            # This file
 └── templates/           # HTML templates
     ├── base.html        # Base template with navigation
