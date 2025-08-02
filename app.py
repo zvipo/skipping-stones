@@ -97,7 +97,17 @@ def verify_google_id_token(id_token):
         for key in keys['keys']:
             if key['kid'] == kid:
                 try:
-                    public_key = jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(key))
+                    # Use cryptography library to create the public key
+                    from cryptography.hazmat.primitives.asymmetric import rsa
+                    import base64
+                    
+                    # Extract the key components from JWK
+                    n = int.from_bytes(base64.urlsafe_b64decode(key['n'] + '=='), 'big')
+                    e = int.from_bytes(base64.urlsafe_b64decode(key['e'] + '=='), 'big')
+                    
+                    # Create the public key
+                    public_numbers = rsa.RSAPublicNumbers(e, n)
+                    public_key = public_numbers.public_key()
                     print(f"Found matching public key for kid: {kid}")
                     break
                 except Exception as e:
