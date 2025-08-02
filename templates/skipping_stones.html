@@ -286,6 +286,8 @@ class SkippingStonesGame {
         this.configurations = {};
         this.completedLevels = [];
         this.isUserLoggedIn = false;
+        this.userEmail = null;
+        this.userName = null;
         this.levelStates = {}; // Store state for each level
         this.hasUnsavedChanges = false; // Track if there are unsaved changes
         this.init();
@@ -803,11 +805,22 @@ class SkippingStonesGame {
             if (response.ok) {
                 const authData = await response.json();
                 this.isUserLoggedIn = authData.authenticated;
+                this.userEmail = authData.email;
+                this.userName = authData.name;
+                console.log('User login status:', { 
+                    authenticated: this.isUserLoggedIn, 
+                    email: this.userEmail, 
+                    name: this.userName 
+                });
             } else {
                 this.isUserLoggedIn = false;
+                this.userEmail = null;
+                this.userName = null;
             }
         } catch (error) {
             this.isUserLoggedIn = false;
+            this.userEmail = null;
+            this.userName = null;
         }
         this.updateSaveButtonState();
     }
@@ -958,7 +971,9 @@ class SkippingStonesGame {
             const allLevelsState = {
                 level_states: this.levelStates,
                 completed_levels: this.completedLevels,
-                current_level: this.currentConfig
+                current_level: this.currentConfig,
+                user_email: this.userEmail || '',
+                user_name: this.userName || ''
             };
             
             console.log('Auto-saving all levels state:', allLevelsState);
@@ -1009,7 +1024,9 @@ class SkippingStonesGame {
             const allLevelsState = {
                 level_states: this.levelStates,
                 completed_levels: this.completedLevels,
-                current_level: this.currentConfig
+                current_level: this.currentConfig,
+                user_email: this.userEmail || '',
+                user_name: this.userName || ''
             };
             
             console.log('Saving all levels state:', allLevelsState);

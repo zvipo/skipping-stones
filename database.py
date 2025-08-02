@@ -76,6 +76,8 @@ class GameStateDB:
             
             item = {
                 'user_id': user_id,
+                'user_email': all_levels_state.get('user_email', ''),
+                'user_name': all_levels_state.get('user_name', ''),
                 'all_levels_state': json.dumps(all_levels_state.get('level_states', {})),
                 'completed_levels': json.dumps(all_levels_state.get('completed_levels', [])),
                 'current_level': all_levels_state.get('current_level', 'level1'),
@@ -132,6 +134,8 @@ class GameStateDB:
                     'level_states': all_levels_state,
                     'completed_levels': completed_levels,
                     'current_level': current_level,
+                    'user_email': item.get('user_email', ''),
+                    'user_name': item.get('user_name', ''),
                     'last_updated': item.get('last_updated')
                 }
                 

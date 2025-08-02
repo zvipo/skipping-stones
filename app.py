@@ -531,7 +531,9 @@ def auth_status():
     """Check if user is authenticated"""
     return jsonify({
         'authenticated': current_user.is_authenticated,
-        'user_id': current_user.id if current_user.is_authenticated else None
+        'user_id': current_user.id if current_user.is_authenticated else None,
+        'email': current_user.email if current_user.is_authenticated else None,
+        'name': current_user.name if current_user.is_authenticated else None
     }), 200
 
 @app.route('/api/game-state/save-all-levels', methods=['POST'])
