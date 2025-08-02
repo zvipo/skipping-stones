@@ -1000,22 +1000,19 @@ class SkippingStonesGame {
         if (!this.isUserLoggedIn) return;
         
         try {
-            const response = await fetch('/api/game-state/complete-level', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ level: level })
-            });
-            
-            if (response.ok) {
-                if (!this.completedLevels.includes(level)) {
-                    this.completedLevels.push(level);
-                }
-                console.log(`Level ${level} marked as completed`);
-            } else {
-                console.error('Failed to mark level as completed');
+            // Add level to completed levels if not already there
+            if (!this.completedLevels.includes(level)) {
+                this.completedLevels.push(level);
+                console.log(`Added ${level} to completed levels`);
             }
+            
+            // Save all levels state to update completed levels on server
+            await this.saveGame();
+            
+            // Update user stats to reflect the change
+            this.updateUserStats();
+            
+            console.log(`Level ${level} marked as completed and saved`);
         } catch (error) {
             console.error('Error marking level as completed:', error);
         }
