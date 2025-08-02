@@ -73,16 +73,24 @@ def get_google_public_keys():
 def verify_google_id_token(id_token):
     """Verify Google ID token using Google's public keys"""
     try:
+        print(f"Starting token verification...")
+        print(f"Client ID: {GOOGLE_CLIENT_ID}")
+        print(f"Token length: {len(id_token)}")
+        
         # Decode the JWT header to get the key ID
         header = jwt.get_unverified_header(id_token)
         kid = header.get('kid')
         
         if not kid:
             print("Error: No key ID in token header")
+            print(f"Header: {header}")
             return None
+        
+        print(f"Token key ID: {kid}")
         
         # Get Google's public keys
         keys = get_google_public_keys()
+        print(f"Available keys: {[key.get('kid') for key in keys['keys']]}")
         
         # Find the correct public key
         public_key = None
@@ -90,6 +98,7 @@ def verify_google_id_token(id_token):
             if key['kid'] == kid:
                 try:
                     public_key = jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(key))
+                    print(f"Found matching public key for kid: {kid}")
                     break
                 except Exception as e:
                     print(f"Error creating public key from JWK: {e}")
@@ -100,6 +109,7 @@ def verify_google_id_token(id_token):
             return None
         
         # Verify and decode the token
+        print("Attempting to decode token...")
         decoded = jwt.decode(
             id_token,
             public_key,
@@ -109,12 +119,14 @@ def verify_google_id_token(id_token):
         )
         
         print(f"Token verified successfully for user: {decoded.get('email', 'unknown')}")
+        print(f"Token claims: {list(decoded.keys())}")
         return decoded
     except jwt.ExpiredSignatureError:
         print("Error: Token has expired")
         return None
     except jwt.InvalidAudienceError:
         print(f"Error: Invalid audience. Expected: {GOOGLE_CLIENT_ID}")
+        print(f"Token audience: {jwt.get_unverified_header(id_token)}")
         return None
     except jwt.InvalidIssuerError:
         print("Error: Invalid issuer. Expected: https://accounts.google.com")
@@ -124,6 +136,7 @@ def verify_google_id_token(id_token):
         return None
     except Exception as e:
         print(f"Token verification failed: {e}")
+        print(f"Exception type: {type(e)}")
         return None
 
 @app.route('/')
@@ -150,11 +163,17 @@ def login():
 
 @app.route('/callback')
 def callback():
+    print(f"Callback received. Request URL: {request.url}")
+    print(f"Redirect URI configured: {GOOGLE_REDIRECT_URI}")
+    
     code = request.args.get('code')
     
     if not code:
+        print("Error: No authorization code received")
         flash('Authorization failed', 'error')
         return redirect(url_for('skipping_stones'))
+    
+    print(f"Authorization code received: {code[:10]}...")
     
     # Exchange authorization code for access token and ID token
     token_url = GOOGLE_TOKEN_ENDPOINT
