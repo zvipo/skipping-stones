@@ -29,7 +29,6 @@ app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 # Initialize database
 try:
     db.create_table_if_not_exists()
-    print("Database initialized successfully")
 except Exception as e:
     print(f"Database initialization error: {e}")
 
@@ -117,24 +116,15 @@ def get_google_public_keys():
 def verify_google_id_token(id_token):
     """Verify Google ID token using Google's public keys"""
     try:
-        print(f"Starting token verification...")
-        print(f"Client ID: {GOOGLE_CLIENT_ID}")
-        print(f"Token length: {len(id_token)}")
-        
         # Decode the JWT header to get the key ID
         header = jwt.get_unverified_header(id_token)
         kid = header.get('kid')
         
         if not kid:
-            print("Error: No key ID in token header")
-            print(f"Header: {header}")
             return None
-        
-        print(f"Token key ID: {kid}")
         
         # Get Google's public keys
         keys = get_google_public_keys()
-        print(f"Available keys: {[key.get('kid') for key in keys['keys']]}")
         
         # Find the correct public key
         public_key = None
@@ -152,18 +142,14 @@ def verify_google_id_token(id_token):
                     # Create the public key
                     public_numbers = rsa.RSAPublicNumbers(e, n)
                     public_key = public_numbers.public_key()
-                    print(f"Found matching public key for kid: {kid}")
                     break
                 except Exception as e:
-                    print(f"Error creating public key from JWK: {e}")
                     continue
         
         if not public_key:
-            print(f"Error: No matching public key found for kid: {kid}")
             return None
         
         # Verify and decode the token
-        print("Attempting to decode token...")
         decoded = jwt.decode(
             id_token,
             public_key,
@@ -172,25 +158,16 @@ def verify_google_id_token(id_token):
             issuer='https://accounts.google.com'
         )
         
-        print(f"Token verified successfully for user: {decoded.get('email', 'unknown')}")
-        print(f"Token claims: {list(decoded.keys())}")
         return decoded
     except jwt.ExpiredSignatureError:
-        print("Error: Token has expired")
         return None
     except jwt.InvalidAudienceError:
-        print(f"Error: Invalid audience. Expected: {GOOGLE_CLIENT_ID}")
-        print(f"Token audience: {jwt.get_unverified_header(id_token)}")
         return None
     except jwt.InvalidIssuerError:
-        print("Error: Invalid issuer. Expected: https://accounts.google.com")
         return None
     except jwt.InvalidSignatureError:
-        print("Error: Invalid token signature")
         return None
     except Exception as e:
-        print(f"Token verification failed: {e}")
-        print(f"Exception type: {type(e)}")
         return None
 
 @app.route('/')
@@ -217,17 +194,11 @@ def login():
 
 @app.route('/callback')
 def callback():
-    print(f"Callback received. Request URL: {request.url}")
-    print(f"Redirect URI configured: {GOOGLE_REDIRECT_URI}")
-    
     code = request.args.get('code')
     
     if not code:
-        print("Error: No authorization code received")
         flash('Authorization failed', 'error')
         return redirect(url_for('skipping_stones'))
-    
-    print(f"Authorization code received: {code[:10]}...")
     
     # Exchange authorization code for access token and ID token
     token_url = GOOGLE_TOKEN_ENDPOINT
@@ -241,8 +212,6 @@ def callback():
     
     response = requests.post(token_url, data=token_data)
     if response.status_code != 200:
-        print("Error: Failed to get tokens")
-        print(f"Token response keys: {list(response.json().keys())}")
         flash('Failed to get tokens', 'error')
         return redirect(url_for('skipping_stones'))
     
@@ -250,21 +219,14 @@ def callback():
     id_token = token_info.get('id_token')
     
     if not id_token:
-        print("Error: No ID token in response")
-        print(f"Token response keys: {list(token_info.keys())}")
         flash('No ID token received', 'error')
         return redirect(url_for('skipping_stones'))
-    
-    print(f"Received ID token length: {len(id_token)}")
     
     # Verify the ID token
     user_info = verify_google_id_token(id_token)
     if not user_info:
-        print("Error: ID token verification failed")
         flash('Invalid ID token - JWT verification failed', 'error')
         return redirect(url_for('skipping_stones'))
-    
-    print(f"All OIDC claims: {list(user_info.keys())}")
     
     # Extract user information from ID token
     user_id = user_info.get('sub')  # OIDC standard claim for user ID
@@ -280,12 +242,8 @@ def callback():
     if not picture:
         picture = user_info.get('avatar_url', '')
     
-    print(f"User info from OIDC: ID={user_id}, Email={email}, Name={name}, Picture={picture}")
-    print(f"Picture field check: picture='{user_info.get('picture', '')}', picture_url='{user_info.get('picture_url', '')}', avatar='{user_info.get('avatar', '')}'")
-    
     # If no picture in ID token, try userinfo endpoint as fallback
     if not picture and token_info.get('access_token'):
-        print("No picture in ID token, trying userinfo endpoint...")
         try:
             userinfo_url = 'https://www.googleapis.com/oauth2/v2/userinfo'
             headers = {'Authorization': f'Bearer {token_info["access_token"]}'}
@@ -294,14 +252,10 @@ def callback():
             if userinfo_response.status_code == 200:
                 userinfo_data = userinfo_response.json()
                 picture = userinfo_data.get('picture', picture)  # Use userinfo picture if available
-                print(f"Userinfo picture: {picture}")
-            else:
-                print(f"Userinfo endpoint failed: {userinfo_response.status_code}")
         except Exception as e:
-            print(f"Error fetching userinfo: {e}")
+            pass
     
     if not user_id:
-        print(f"Error: No 'sub' claim found in user_info: {list(user_info.keys())}")
         flash('Invalid user information - missing user ID', 'error')
         return redirect(url_for('skipping_stones'))
     
@@ -351,10 +305,6 @@ def callback():
     # Make session permanent (24 hours)
     session.permanent = True
     
-    print(f"User logged in: {user.id}")
-    print(f"Session permanent: {session.permanent}")
-    print(f"Session lifetime: {app.config['PERMANENT_SESSION_LIFETIME']}")
-    
     login_user(user)
     
     return redirect(url_for('skipping_stones'))
@@ -369,9 +319,8 @@ def logout():
             game_state = session.get('current_game_state', {})
             if game_state:
                 db.save_game_state(current_user.id, game_state)
-                print(f"Saved game state for user {current_user.id} on logout")
         except Exception as e:
-            print(f"Error saving game state on logout: {e}")
+            pass
     
     logout_user()
     session.clear()
@@ -503,7 +452,6 @@ def save_game_state():
             return jsonify({'error': 'Failed to save game state'}), 500
             
     except Exception as e:
-        print(f"Error saving game state: {e}")
         return jsonify({'error': 'Internal server error'}), 500
 
 @app.route('/api/game-state/load')
@@ -544,7 +492,6 @@ def load_game_state():
             return jsonify(default_state), 200
             
     except Exception as e:
-        print(f"Error loading game state: {e}")
         return jsonify({'error': 'Internal server error'}), 500
 
 @app.route('/api/game-state/complete-level', methods=['POST'])
@@ -566,7 +513,6 @@ def complete_level():
             return jsonify({'error': 'Failed to mark level as completed'}), 500
             
     except Exception as e:
-        print(f"Error completing level: {e}")
         return jsonify({'error': 'Internal server error'}), 500
 
 @app.route('/api/auth/debug-session')
@@ -601,11 +547,6 @@ def auth_status():
     global request_count
     request_count += 1
     
-    print(f"Auth status check - User authenticated: {current_user.is_authenticated}")
-    print(f"Session ID: {session.get('_id', 'No session ID')}")
-    print(f"Session permanent: {session.permanent}")
-    print(f"Session modified: {session.modified}")
-    
     return jsonify({
         'authenticated': current_user.is_authenticated,
         'user_id': current_user.id if current_user.is_authenticated else None,
@@ -616,8 +557,6 @@ def auth_status():
 @app.route('/api/auth/refresh-session', methods=['POST'])
 def refresh_session():
     """Refresh the user's session to prevent expiration"""
-    print(f"Session refresh requested - User authenticated: {current_user.is_authenticated}")
-    print(f"Session ID before refresh: {session.get('_id', 'No session ID')}")
     
     if current_user.is_authenticated:
         # Touch the session to extend its lifetime
@@ -626,12 +565,8 @@ def refresh_session():
         # Track session activity for cleanup
         session_activity[current_user.id] = datetime.now()
         
-        print(f"Session refreshed for user: {current_user.id}")
-        print(f"Session ID after refresh: {session.get('_id', 'No session ID')}")
-        
         return jsonify({'message': 'Session refreshed successfully'}), 200
     else:
-        print("Session refresh failed - user not authenticated")
         return jsonify({'error': 'No active session to refresh'}), 401
 
 def cleanup_old_sessions():
@@ -643,7 +578,6 @@ def cleanup_old_sessions():
     ]
     for user_id in expired_sessions:
         del session_activity[user_id]
-    print(f"Cleaned up {len(expired_sessions)} old session records")
 
 @app.route('/api/game-state/save-all-levels', methods=['POST'])
 @api_login_required
@@ -666,7 +600,6 @@ def save_all_levels_state():
             return jsonify({'error': 'Failed to save all levels state'}), 500
             
     except Exception as e:
-        print(f"Error saving all levels state: {e}")
         return jsonify({'error': 'Internal server error'}), 500
 
 @app.route('/api/game-state/load-all-levels')
@@ -698,7 +631,6 @@ def load_all_levels_state():
             return jsonify(default_state), 200
             
     except Exception as e:
-        print(f"Error loading all levels state: {e}")
         return jsonify({'error': 'Internal server error'}), 500
 
 @app.route('/api/user/stats')
@@ -716,7 +648,6 @@ def get_user_stats():
                 'progress_percentage': 0
             }), 200
     except Exception as e:
-        print(f"Error getting user stats: {e}")
         return jsonify({'error': 'Internal server error'}), 500
 
 @app.route('/api/share/level-completed', methods=['POST'])
@@ -724,11 +655,9 @@ def get_user_stats():
 def generate_share_image():
     """Generate a shareable image for a completed level"""
     try:
-        print("Starting share image generation...")
         data = request.get_json()
         
         if not data:
-            print("Error: No JSON data received")
             return jsonify({'error': 'No data received'}), 400
             
         level = data.get('level')
@@ -736,12 +665,7 @@ def generate_share_image():
         moves_count = data.get('moves_count', 0)
         marbles_left = data.get('marbles_left', 1)
         
-        print(f"Received data: level={level}, moves={moves_count}, marbles={marbles_left}")
-        print(f"Board state type: {type(board_state)}, length: {len(board_state) if board_state else 0}")
-        print(f"Current user: {current_user.name if current_user.is_authenticated else 'Not authenticated'}")
-        
         if not level:
-            print("Error: No level specified")
             return jsonify({'error': 'No level specified'}), 400
         
         # Get level configuration
@@ -750,10 +674,7 @@ def generate_share_image():
         level_name = level_config.get('name', level)
         level_description = level_config.get('description', '')
         
-        print(f"Level config: {level_name} - {level_description}")
-        
         # Create the share image
-        print("Creating share image...")
         image_data = create_share_image(
             level_name=level_name,
             level_description=level_description,
@@ -765,12 +686,8 @@ def generate_share_image():
             level=level
         )
         
-        print(f"Image created successfully, size: {len(image_data)} bytes")
-        
         # Convert to base64 for easy sharing
         image_base64 = base64.b64encode(image_data).decode('utf-8')
-        
-        print("Share image generation completed successfully")
         
         return jsonify({
             'image_data': image_base64,
@@ -779,19 +696,11 @@ def generate_share_image():
         }), 200
         
     except Exception as e:
-        print(f"Error generating share image: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': f'Internal server error: {str(e)}'}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 def create_share_image(level_name, level_description, board_state, moves_count, marbles_left, user_name, user_email, level):
     """Create a shareable image for a completed level"""
     try:
-        print(f"Creating image with dimensions 800x800")
-        print(f"Input parameters: level_name={level_name}, level={level}, user_name={user_name}")
-        print(f"Board state: {board_state}")
-        print(f"Level description: {level_description}")
-        
         # Image dimensions - make it square
         width, height = 800, 800
         
@@ -799,14 +708,10 @@ def create_share_image(level_name, level_description, board_state, moves_count, 
         image = Image.new('RGB', (width, height), color='#1a1a2e')
         draw = ImageDraw.Draw(image)
         
-        print("Image created successfully")
-        
         # Test basic drawing
         try:
             draw.rectangle([0, 0, width, height], fill='#1a1a2e')
-            print("Basic rectangle drawn successfully")
         except Exception as e:
-            print(f"Error drawing basic rectangle: {e}")
             raise e
         
         # Use default fonts for reliability across different environments
@@ -818,7 +723,6 @@ def create_share_image(level_name, level_description, board_state, moves_count, 
             body_font = ImageFont.load_default()
             small_font = ImageFont.load_default()
         except Exception as e:
-            print(f"Font loading failed: {e}")
             # Fallback to basic text drawing without custom fonts
             title_font = None
             subtitle_font = None
@@ -832,12 +736,9 @@ def create_share_image(level_name, level_description, board_state, moves_count, 
                 g = int(26 + (y / height) * 30)
                 b = int(46 + (y / height) * 40)
                 draw.line([(0, y), (width, y)], fill=(r, g, b))
-            print("Gradient background drawn successfully")
         except Exception as e:
-            print(f"Error drawing gradient background: {e}")
             # Fallback to solid background
             draw.rectangle([0, 0, width, height], fill='#1a1a2e')
-            print("Using solid background as fallback")
         
         # Title
         title_text = f"{level_name} Completed!"
@@ -964,14 +865,9 @@ def create_share_image(level_name, level_description, board_state, moves_count, 
         image.save(img_byte_arr, format='PNG')
         img_byte_arr.seek(0)
         
-        print("Image saved to bytes successfully")
         return img_byte_arr.getvalue()
         
     except Exception as e:
-        print(f"Error in create_share_image: {e}")
-        print(f"Error type: {type(e).__name__}")
-        import traceback
-        traceback.print_exc()
         raise e
 
 if __name__ == '__main__':

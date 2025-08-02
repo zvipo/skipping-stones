@@ -20,7 +20,6 @@ class GameStateDB:
         try:
             # Check if table exists
             self.table.load()
-            print(f"Table {self.table_name} already exists")
         except ClientError as e:
             if e.response['Error']['Code'] == 'ResourceNotFoundException':
                 # Table doesn't exist, create it
@@ -43,7 +42,6 @@ class GameStateDB:
                 
                 # Wait for table to be created
                 self.table.meta.client.get_waiter('table_exists').wait(TableName=self.table_name)
-                print(f"Created table {self.table_name}")
             else:
                 raise e
     
@@ -63,7 +61,6 @@ class GameStateDB:
             }
             
             self.table.put_item(Item=item)
-            print(f"Saved game state for user {user_id}")
             return True
         except Exception as e:
             print(f"Error saving game state for user {user_id}: {e}")
@@ -72,8 +69,6 @@ class GameStateDB:
     def save_all_levels_state(self, user_id: str, all_levels_state: Dict[str, Any]) -> bool:
         """Save all levels' state for a user"""
         try:
-            print(f"Saving all levels state for user {user_id}: {all_levels_state}")
-            
             item = {
                 'user_id': user_id,
                 'user_email': all_levels_state.get('user_email', ''),
@@ -84,9 +79,7 @@ class GameStateDB:
                 'last_updated': datetime.now().isoformat()
             }
             
-            print(f"Saving item to database: {item}")
             self.table.put_item(Item=item)
-            print(f"Saved all levels state for user {user_id}")
             return True
         except Exception as e:
             print(f"Error saving all levels state for user {user_id}: {e}")
@@ -106,11 +99,9 @@ class GameStateDB:
                     'marbles_left': item.get('marbles_left', 0),
                     'moves_count': item.get('moves_count', 0),
                     'game_status': item.get('game_status', 'Playing'),
-                    'last_updated': item.get('last_updated'),
                     'completed_levels': json.loads(item.get('completed_levels', '[]'))
                 }
             else:
-                print(f"No game state found for user {user_id}")
                 return None
         except Exception as e:
             print(f"Error loading game state for user {user_id}: {e}")
@@ -119,30 +110,19 @@ class GameStateDB:
     def load_all_levels_state(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Load all levels' state for a user"""
         try:
-            print(f"Loading all levels state for user {user_id}")
             response = self.table.get_item(Key={'user_id': user_id})
             
             if 'Item' in response:
                 item = response['Item']
-                print(f"Found item in database: {item}")
-                
-                all_levels_state = json.loads(item.get('all_levels_state', '{}'))
-                completed_levels = json.loads(item.get('completed_levels', '[]'))
-                current_level = item.get('current_level', 'level1')
-                
                 result = {
-                    'level_states': all_levels_state,
-                    'completed_levels': completed_levels,
-                    'current_level': current_level,
                     'user_email': item.get('user_email', ''),
                     'user_name': item.get('user_name', ''),
-                    'last_updated': item.get('last_updated')
+                    'level_states': json.loads(item.get('all_levels_state', '{}')),
+                    'completed_levels': json.loads(item.get('completed_levels', '[]')),
+                    'current_level': item.get('current_level', 'level1')
                 }
-                
-                print(f"Returning all levels state: {result}")
                 return result
             else:
-                print(f"No all levels state found for user {user_id}")
                 return None
         except Exception as e:
             print(f"Error loading all levels state for user {user_id}: {e}")
@@ -151,67 +131,71 @@ class GameStateDB:
     def mark_level_completed(self, user_id: str, level: str) -> bool:
         """Mark a level as completed for a user"""
         try:
-            # First, get the current state
-            current_state = self.load_game_state(user_id)
-            if not current_state:
-                current_state = {
-                    'current_level': level,
-                    'board_state': [],
-                    'move_history': [],
-                    'marbles_left': 0,
-                    'moves_count': 0,
-                    'game_status': 'Playing',
-                    'completed_levels': []
-                }
+            # Get current completed levels
+            response = self.table.get_item(Key={'user_id': user_id})
+            completed_levels = []
             
-            # Add the level to completed levels if not already there
-            completed_levels = current_state.get('completed_levels', [])
+            if 'Item' in response:
+                item = response['Item']
+                completed_levels = json.loads(item.get('completed_levels', '[]'))
+            
+            # Add the new level if not already completed
             if level not in completed_levels:
                 completed_levels.append(level)
+                
+                # Update the item
+                self.table.update_item(
+                    Key={'user_id': user_id},
+                    UpdateExpression='SET completed_levels = :completed_levels',
+                    ExpressionAttributeValues={
+                        ':completed_levels': json.dumps(completed_levels)
+                    }
+                )
             
-            # Save the updated state
-            current_state['completed_levels'] = completed_levels
-            return self.save_game_state(user_id, current_state)
+            return True
         except Exception as e:
             print(f"Error marking level {level} as completed for user {user_id}: {e}")
             return False
     
     def delete_game_state(self, user_id: str) -> bool:
-        """Delete the game state for a user (used on logout)"""
+        """Delete the game state for a user"""
         try:
             self.table.delete_item(Key={'user_id': user_id})
-            print(f"Deleted game state for user {user_id}")
             return True
         except Exception as e:
             print(f"Error deleting game state for user {user_id}: {e}")
             return False
     
     def get_user_stats(self, user_id: str) -> Dict[str, Any]:
-        """Get user statistics"""
+        """Get statistics for a user"""
         try:
-            state = self.load_game_state(user_id)
-            if state:
+            response = self.table.get_item(Key={'user_id': user_id})
+            
+            if 'Item' in response:
+                item = response['Item']
+                completed_levels = json.loads(item.get('completed_levels', '[]'))
+                
                 return {
-                    'completed_levels': state.get('completed_levels', []),
-                    'total_levels_completed': len(state.get('completed_levels', [])),
-                    'current_level': state.get('current_level', 'level1'),
-                    'last_updated': state.get('last_updated')
+                    'total_levels_completed': len(completed_levels),
+                    'completed_levels': completed_levels,
+                    'current_level': item.get('current_level', 'level1'),
+                    'last_updated': item.get('last_updated', '')
                 }
             else:
                 return {
-                    'completed_levels': [],
                     'total_levels_completed': 0,
+                    'completed_levels': [],
                     'current_level': 'level1',
-                    'last_updated': None
+                    'last_updated': ''
                 }
         except Exception as e:
             print(f"Error getting stats for user {user_id}: {e}")
             return {
-                'completed_levels': [],
                 'total_levels_completed': 0,
+                'completed_levels': [],
                 'current_level': 'level1',
-                'last_updated': None
+                'last_updated': ''
             }
 
-# Global database instance
+# Create a global instance
 db = GameStateDB() 
