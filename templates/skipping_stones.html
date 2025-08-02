@@ -287,6 +287,7 @@ class SkippingStonesGame {
         this.completedLevels = [];
         this.isUserLoggedIn = false;
         this.levelStates = {}; // Store state for each level
+        this.hasUnsavedChanges = false; // Track if there are unsaved changes
         this.init();
     }
     
@@ -462,7 +463,7 @@ class SkippingStonesGame {
         this.updateUserStats();
     }
     
-    loadConfiguration(configKey, preserveHistory = false) {
+    async loadConfiguration(configKey, preserveHistory = false) {
         this.currentConfig = configKey;
         this.resetBoard();
         
@@ -491,7 +492,7 @@ class SkippingStonesGame {
         if (this.isUserLoggedIn) {
             console.log('User is logged in, saving all levels state after config load...');
             // Save all levels state instead of just current level
-            this.saveGame();
+            await this.saveGameAuto();
         }
         
         // Save level state
@@ -574,7 +575,7 @@ class SkippingStonesGame {
         } else if (this.selectedMarble && this.isValidMove(row, col)) {
             // Clicked on a valid destination - make the move
             this.makeMove(this.selectedMarble.row, this.selectedMarble.col, row, col);
-            this.selectedMarble = null;
+            this.selectedMarble = null; // Clear immediately for UI update
         }
         
         this.updateDisplay();
@@ -600,7 +601,7 @@ class SkippingStonesGame {
         return false;
     }
     
-    makeMove(fromRow, fromCol, toRow, toCol) {
+    async makeMove(fromRow, fromCol, toRow, toCol) {
         // Remove the jumped marble
         const jumpRow = fromRow + (toRow - fromRow) / 2;
         const jumpCol = fromCol + (toCol - fromCol) / 2;
@@ -619,11 +620,15 @@ class SkippingStonesGame {
         this.updateMoveHistory();
         this.checkGameStatus();
         
+        // Mark as having unsaved changes
+        this.hasUnsavedChanges = true;
+        this.updateSaveButtonState();
+        
         // Save state if user is logged in
         if (this.isUserLoggedIn) {
             console.log('User is logged in, saving all levels state...');
             // Save all levels state instead of just current level
-            this.saveGame();
+            await this.saveGameAuto(); // Use auto-save version that doesn't mark as saved
         }
         
         // Save level state
@@ -737,7 +742,7 @@ class SkippingStonesGame {
         this.updateUserStats();
     }
     
-    undoMove() {
+    async undoMove() {
         if (this.moveHistory.length === 0) return;
         
         const lastMove = this.moveHistory.pop();
@@ -751,11 +756,15 @@ class SkippingStonesGame {
         this.updateDisplay();
         this.updateMoveHistory();
         
+        // Mark as having unsaved changes
+        this.hasUnsavedChanges = true;
+        this.updateSaveButtonState();
+        
         // Save state if user is logged in
         if (this.isUserLoggedIn) {
             console.log('User is logged in, saving all levels state after undo...');
             // Save all levels state instead of just current level
-            this.saveGame();
+            await this.saveGameAuto();
         }
         
         // Save level state
@@ -932,6 +941,49 @@ class SkippingStonesGame {
         }
     }
     
+    async saveGameAuto() {
+        if (!this.isUserLoggedIn) {
+            return;
+        }
+        
+        try {
+            // Make sure current level state is included in levelStates
+            this.levelStates[this.currentConfig] = {
+                board: this.board,
+                moveHistory: this.moveHistory,
+                currentConfig: this.currentConfig
+            };
+            
+            // Save all levels state
+            const allLevelsState = {
+                level_states: this.levelStates,
+                completed_levels: this.completedLevels,
+                current_level: this.currentConfig
+            };
+            
+            console.log('Auto-saving all levels state:', allLevelsState);
+            
+            const response = await fetch('/api/game-state/save-all-levels', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(allLevelsState)
+            });
+            
+            console.log('Auto-save response status:', response.status);
+            
+            if (response.ok) {
+                console.log('All levels state auto-saved successfully');
+            } else {
+                const errorText = await response.text();
+                console.error('Failed to auto-save all levels state:', errorText);
+            }
+        } catch (error) {
+            console.error('Error auto-saving game:', error);
+        }
+    }
+    
     async saveGame() {
         if (!this.isUserLoggedIn) {
             alert('Please log in to save your game progress.');
@@ -974,6 +1026,11 @@ class SkippingStonesGame {
             
             if (response.ok) {
                 console.log('All levels state saved successfully');
+                
+                // Mark as saved
+                this.hasUnsavedChanges = false;
+                this.updateSaveButtonState();
+                
                 // Show success feedback
                 const saveBtn = document.getElementById('saveBtn');
                 const originalText = saveBtn.innerHTML;
@@ -983,7 +1040,7 @@ class SkippingStonesGame {
                 
                 // Reset button text after 2 seconds
                 setTimeout(() => {
-                    saveBtn.innerHTML = originalText;
+                    this.updateSaveButtonState();
                 }, 2000);
             } else {
                 const errorText = await response.text();
@@ -1053,7 +1110,17 @@ class SkippingStonesGame {
             saveBtn.title = 'Please log in to save your game';
         } else {
             saveBtn.disabled = false;
-            saveBtn.title = 'Save progress for all levels';
+            if (this.hasUnsavedChanges) {
+                saveBtn.innerHTML = '<i class="fas fa-save me-2"></i>Save*';
+                saveBtn.classList.remove('btn-success');
+                saveBtn.classList.add('btn-warning');
+                saveBtn.title = 'Save progress for all levels (unsaved changes)';
+            } else {
+                saveBtn.innerHTML = '<i class="fas fa-save me-2"></i>Save Game';
+                saveBtn.classList.remove('btn-warning');
+                saveBtn.classList.add('btn-success');
+                saveBtn.title = 'Save progress for all levels';
+            }
         }
     }
 }
