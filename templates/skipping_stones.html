@@ -18,6 +18,9 @@
                             <p class="text-muted">Click a marble to select it, then click a valid destination to make a move.</p>
                         </div>
                         <div class="col-md-6 text-end">
+                            <button id="saveBtn" class="btn btn-success">
+                                <i class="fas fa-save me-2"></i>Save Game
+                            </button>
                             <button id="resetBtn" class="btn btn-warning">
                                 <i class="fas fa-redo me-2"></i>Reset Game
                             </button>
@@ -102,6 +105,31 @@
                 <div class="card-body">
                     <div id="moveHistory" class="move-history">
                         <p class="text-muted text-center">No moves yet</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card mt-3" id="userStatsCard" style="display: none;">
+                <div class="card-header bg-info text-white">
+                    <h6 class="mb-0">
+                        <i class="fas fa-user-chart me-2"></i>Your Progress
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <div id="userStats" class="user-stats">
+                        <div class="row text-center">
+                            <div class="col-6">
+                                <h5 id="completedLevels" class="text-success">0</h5>
+                                <small class="text-muted">Levels Completed</small>
+                            </div>
+                            <div class="col-6">
+                                <h5 id="totalLevels" class="text-primary">7</h5>
+                                <small class="text-muted">Total Levels</small>
+                            </div>
+                        </div>
+                        <div class="progress mt-3">
+                            <div id="progressBar" class="progress-bar bg-success" role="progressbar" style="width: 0%"></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -207,6 +235,16 @@
     transform: translateY(-1px);
 }
 
+.config-item.completed {
+    border-color: #28a745;
+    background: #f8fff9;
+}
+
+.config-item.completed:hover {
+    background: #e8f5e8;
+    border-color: #20c997;
+}
+
 .move-history {
     max-height: 200px;
     overflow-y: auto;
@@ -231,6 +269,11 @@
         font-size: 0.8em;
     }
 }
+
+.btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
 </style>
 
 <script>
@@ -241,7 +284,56 @@ class SkippingStonesGame {
         this.moveHistory = [];
         this.currentConfig = 'level1';
         this.configurations = {};
+        this.completedLevels = [];
+        this.isUserLoggedIn = false;
+        this.levelStates = {}; // Store state for each level
+        this.hasUnsavedChanges = false; // Track if there are unsaved changes
         this.init();
+    }
+    
+    // Save current level state to session storage
+    saveLevelState() {
+        const levelState = {
+            board: this.board,
+            moveHistory: this.moveHistory,
+            currentConfig: this.currentConfig
+        };
+        this.levelStates[this.currentConfig] = levelState;
+        sessionStorage.setItem('skippingStonesLevelStates', JSON.stringify(this.levelStates));
+    }
+    
+    // Load level state from session storage
+    loadLevelState(configKey) {
+        const savedStates = sessionStorage.getItem('skippingStonesLevelStates');
+        if (savedStates) {
+            try {
+                this.levelStates = JSON.parse(savedStates);
+                const levelState = this.levelStates[configKey];
+                if (levelState) {
+                    this.board = levelState.board;
+                    this.moveHistory = levelState.moveHistory;
+                    return true;
+                }
+            } catch (error) {
+                console.error('Error loading level states:', error);
+            }
+        }
+        return false;
+    }
+    
+    // Clear level state (for reset functionality)
+    clearLevelState(configKey) {
+        if (this.levelStates[configKey]) {
+            delete this.levelStates[configKey];
+            sessionStorage.setItem('skippingStonesLevelStates', JSON.stringify(this.levelStates));
+        }
+    }
+    
+    // Clear all session storage
+    clearSessionStorage() {
+        sessionStorage.removeItem('skippingStonesLevelStates');
+        this.levelStates = {};
+        console.log('Cleared session storage');
     }
     
     createBoard() {
@@ -258,11 +350,39 @@ class SkippingStonesGame {
     async init() {
         await this.loadConfigurations();
         this.setupEventListeners();
-        this.loadConfiguration(this.currentConfig);
-        this.updateDisplay();
         
-        // Ensure level1 is highlighted by default
+        // Check if user is logged in and load their state
+        await this.checkUserLoginStatus();
+        
+        if (this.isUserLoggedIn) {
+            // For logged-in users, don't load from session storage - load from server
+            await this.loadUserGameState();
+        } else {
+            // For non-logged-in users, load from session storage
+            const savedStates = sessionStorage.getItem('skippingStonesLevelStates');
+            if (savedStates) {
+                try {
+                    this.levelStates = JSON.parse(savedStates);
+                } catch (error) {
+                    console.error('Error loading level states:', error);
+                    this.levelStates = {};
+                }
+            }
+            
+            // Try to load saved state for current level
+            const hasSavedState = this.loadLevelState(this.currentConfig);
+            if (hasSavedState) {
+                this.updateDisplay();
+                this.updateMoveHistory();
+            } else {
+                this.loadConfiguration(this.currentConfig);
+            }
+        }
+        
+        this.updateDisplay();
         this.highlightActiveConfiguration();
+        this.updateUserStats();
+        this.updateSaveButtonState();
     }
     
     async loadConfigurations() {
@@ -285,16 +405,65 @@ class SkippingStonesGame {
             if (key === this.currentConfig) {
                 div.classList.add('active');
             }
+            
+            // Add completed indicator
+            const isCompleted = this.completedLevels.includes(key);
+            const completedIcon = isCompleted ? '<i class="fas fa-check-circle text-success me-2"></i>' : '';
+            const completedClass = isCompleted ? 'completed' : '';
+            
             div.innerHTML = `
-                <strong>${config.name}</strong><br>
+                ${completedIcon}<strong>${config.name}</strong><br>
                 <small class="text-muted">${config.description}</small>
+                ${isCompleted ? '<br><small class="text-success">✓ Completed</small>' : ''}
             `;
-            div.onclick = () => this.loadConfiguration(key);
+            
+            if (completedClass) {
+                div.classList.add(completedClass);
+            }
+            
+            div.onclick = () => this.selectConfiguration(key);
             container.appendChild(div);
         });
     }
     
-    loadConfiguration(configKey) {
+    selectConfiguration(configKey) {
+        // If we're already on this configuration, don't reset the game
+        if (this.currentConfig === configKey) {
+            // Just update the active configuration highlight without resetting
+            this.highlightActiveConfiguration();
+            return;
+        }
+        
+        // Save current level state before switching
+        this.saveLevelState();
+        
+        // Switch to the new level
+        this.currentConfig = configKey;
+        
+        // Try to load saved state for this level
+        const hasSavedState = this.loadLevelState(configKey);
+        
+        if (hasSavedState) {
+            // Use saved state
+            this.updateDisplay();
+            this.updateMoveHistory();
+        } else {
+            // Load fresh configuration
+            this.loadConfiguration(configKey, true); // Don't clear history since we're loading fresh
+        }
+        
+        // Update level indicator
+        const levelNumber = configKey.replace('level', '');
+        document.getElementById('currentLevel').textContent = levelNumber;
+        
+        // Update active configuration
+        this.highlightActiveConfiguration();
+        
+        // Update user stats
+        this.updateUserStats();
+    }
+    
+    async loadConfiguration(configKey, preserveHistory = false) {
         this.currentConfig = configKey;
         this.resetBoard();
         
@@ -306,7 +475,11 @@ class SkippingStonesGame {
         }
         
         this.updateDisplay();
-        this.clearHistory();
+        
+        // Only clear history if not preserving it
+        if (!preserveHistory) {
+            this.clearHistory();
+        }
         
         // Update level indicator
         const levelNumber = configKey.replace('level', '');
@@ -314,6 +487,20 @@ class SkippingStonesGame {
         
         // Update active configuration
         this.highlightActiveConfiguration();
+        
+        // Save state if user is logged in
+        if (this.isUserLoggedIn) {
+            console.log('User is logged in, saving all levels state after config load...');
+            // Save all levels state instead of just current level
+            await this.saveGameAuto();
+        }
+        
+        // Save level state
+        console.log('Saving level state for current level after config load...');
+        this.saveLevelState();
+        
+        // Update user stats
+        this.updateUserStats();
     }
     
     resetBoard() {
@@ -326,6 +513,7 @@ class SkippingStonesGame {
     }
     
     setupEventListeners() {
+        document.getElementById('saveBtn').onclick = () => this.saveGame();
         document.getElementById('resetBtn').onclick = () => this.resetGame();
         document.getElementById('undoBtn').onclick = () => this.undoMove();
     }
@@ -387,7 +575,7 @@ class SkippingStonesGame {
         } else if (this.selectedMarble && this.isValidMove(row, col)) {
             // Clicked on a valid destination - make the move
             this.makeMove(this.selectedMarble.row, this.selectedMarble.col, row, col);
-            this.selectedMarble = null;
+            this.selectedMarble = null; // Clear immediately for UI update
         }
         
         this.updateDisplay();
@@ -413,7 +601,7 @@ class SkippingStonesGame {
         return false;
     }
     
-    makeMove(fromRow, fromCol, toRow, toCol) {
+    async makeMove(fromRow, fromCol, toRow, toCol) {
         // Remove the jumped marble
         const jumpRow = fromRow + (toRow - fromRow) / 2;
         const jumpCol = fromCol + (toCol - fromCol) / 2;
@@ -431,6 +619,24 @@ class SkippingStonesGame {
         
         this.updateMoveHistory();
         this.checkGameStatus();
+        
+        // Mark as having unsaved changes
+        this.hasUnsavedChanges = true;
+        this.updateSaveButtonState();
+        
+        // Save state if user is logged in
+        if (this.isUserLoggedIn) {
+            console.log('User is logged in, saving all levels state...');
+            // Save all levels state instead of just current level
+            await this.saveGameAuto(); // Use auto-save version that doesn't mark as saved
+        }
+        
+        // Save level state
+        console.log('Saving level state for current level...');
+        this.saveLevelState();
+        
+        // Update user stats
+        this.updateUserStats();
     }
     
     updateDisplay() {
@@ -493,7 +699,10 @@ class SkippingStonesGame {
     checkGameStatus() {
         const marblesLeft = this.countMarbles();
         if (marblesLeft === 1) {
-            // Game won - status will be updated in updateStats
+            // Game won - mark level as completed
+            if (this.isUserLoggedIn) {
+                this.markLevelCompleted(this.currentConfig);
+            }
         } else if (marblesLeft > 1 && !this.hasValidMoves()) {
             // Game stuck - status will be updated in updateStats
         }
@@ -519,10 +728,21 @@ class SkippingStonesGame {
     }
     
     resetGame() {
+        // Remove current level from completed levels if it was completed
+        if (this.completedLevels.includes(this.currentConfig)) {
+            this.completedLevels = this.completedLevels.filter(level => level !== this.currentConfig);
+            console.log(`Removed ${this.currentConfig} from completed levels`);
+        }
+        
+        // Clear the level state for current level
+        this.clearLevelState(this.currentConfig);
         this.loadConfiguration(this.currentConfig);
+        
+        // Update user stats
+        this.updateUserStats();
     }
     
-    undoMove() {
+    async undoMove() {
         if (this.moveHistory.length === 0) return;
         
         const lastMove = this.moveHistory.pop();
@@ -535,6 +755,24 @@ class SkippingStonesGame {
         this.selectedMarble = null;
         this.updateDisplay();
         this.updateMoveHistory();
+        
+        // Mark as having unsaved changes
+        this.hasUnsavedChanges = true;
+        this.updateSaveButtonState();
+        
+        // Save state if user is logged in
+        if (this.isUserLoggedIn) {
+            console.log('User is logged in, saving all levels state after undo...');
+            // Save all levels state instead of just current level
+            await this.saveGameAuto();
+        }
+        
+        // Save level state
+        console.log('Saving level state for current level after undo...');
+        this.saveLevelState();
+        
+        // Update user stats
+        this.updateUserStats();
     }
     
     clearHistory() {
@@ -557,11 +795,357 @@ class SkippingStonesGame {
             }
         });
     }
+    
+    async checkUserLoginStatus() {
+        try {
+            // Check if user is logged in using the auth status endpoint
+            const response = await fetch('/api/auth/status');
+            if (response.ok) {
+                const authData = await response.json();
+                this.isUserLoggedIn = authData.authenticated;
+            } else {
+                this.isUserLoggedIn = false;
+            }
+        } catch (error) {
+            this.isUserLoggedIn = false;
+        }
+        this.updateSaveButtonState();
+    }
+    
+    async loadUserGameState() {
+        try {
+            console.log('Loading user game state...');
+            
+            // Try to load all levels state first
+            const allLevelsResponse = await fetch('/api/game-state/load-all-levels');
+            console.log('All levels response status:', allLevelsResponse.status);
+            
+            if (allLevelsResponse.ok) {
+                const allLevelsState = await allLevelsResponse.json();
+                console.log('All levels state received:', allLevelsState);
+                console.log('Raw level_states:', allLevelsState.level_states);
+                console.log('Type of level_states:', typeof allLevelsState.level_states);
+                
+                // Load all levels state from server
+                const serverLevelStates = allLevelsState.level_states || {};
+                this.completedLevels = allLevelsState.completed_levels || [];
+                this.currentConfig = allLevelsState.current_level || 'level1';
+                
+                // For logged-in users, use server data directly (don't merge with session storage)
+                this.levelStates = serverLevelStates;
+                
+                console.log('Server levelStates:', serverLevelStates);
+                console.log('Final levelStates:', this.levelStates);
+                console.log('Loaded completedLevels:', this.completedLevels);
+                console.log('Current config:', this.currentConfig);
+                console.log('Keys in levelStates:', Object.keys(this.levelStates));
+                
+                // Load current level state
+                const currentLevelState = this.levelStates[this.currentConfig];
+                console.log('Current level state:', currentLevelState);
+                console.log('Looking for level:', this.currentConfig);
+                console.log('Available levels in levelStates:', Object.keys(this.levelStates));
+                
+                if (currentLevelState) {
+                    console.log('Loading board state:', currentLevelState.board);
+                    console.log('Loading move history:', currentLevelState.moveHistory);
+                    this.board = currentLevelState.board;
+                    this.moveHistory = currentLevelState.moveHistory || [];
+                    this.updateDisplay();
+                    this.updateMoveHistory();
+                    console.log('Loaded saved state for current level');
+                } else {
+                    // Load fresh configuration for current level
+                    console.log('No saved state for current level, loading fresh config');
+                    this.loadConfiguration(this.currentConfig, true);
+                }
+                
+                // Update level indicator
+                const levelNumber = this.currentConfig.replace('level', '');
+                document.getElementById('currentLevel').textContent = levelNumber;
+                
+                // Update active configuration
+                this.highlightActiveConfiguration();
+                
+                console.log('Successfully loaded all levels state');
+            } else {
+                console.log('All levels load failed, trying fallback...');
+                // Fallback to old single level loading
+                const response = await fetch('/api/game-state/load');
+                if (response.ok) {
+                    const gameState = await response.json();
+                    
+                    // Load the saved state
+                    this.currentConfig = gameState.current_level || 'level1';
+                    this.completedLevels = gameState.completed_levels || [];
+                    
+                    // Load board state if it exists
+                    if (gameState.board_state && gameState.board_state.length > 0) {
+                        this.board = gameState.board_state;
+                        // Load move history
+                        this.moveHistory = gameState.move_history || [];
+                        // Update the move history display
+                        this.updateMoveHistory();
+                        // Update display without clearing history
+                        this.updateDisplay();
+                        this.highlightActiveConfiguration();
+                        
+                        // Update level indicator
+                        const levelNumber = this.currentConfig.replace('level', '');
+                        document.getElementById('currentLevel').textContent = levelNumber;
+                    } else {
+                        this.loadConfiguration(this.currentConfig);
+                    }
+                    
+                    console.log('Loaded user game state:', gameState);
+                } else {
+                    // If no saved state, load default configuration
+                    this.loadConfiguration(this.currentConfig);
+                }
+            }
+        } catch (error) {
+            console.error('Error loading user game state:', error);
+            this.loadConfiguration(this.currentConfig);
+        }
+    }
+    
+    async saveGameState() {
+        if (!this.isUserLoggedIn) return;
+        
+        try {
+            const gameState = {
+                current_level: this.currentConfig,
+                board_state: this.board,
+                move_history: this.moveHistory,
+                marbles_left: this.countMarbles(),
+                moves_count: this.moveHistory.length,
+                game_status: this.getGameStatus(),
+                completed_levels: this.completedLevels
+            };
+            
+            const response = await fetch('/api/game-state/save', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(gameState)
+            });
+            
+            if (response.ok) {
+                console.log('Game state saved successfully');
+            } else {
+                console.error('Failed to save game state');
+            }
+        } catch (error) {
+            console.error('Error saving game state:', error);
+        }
+    }
+    
+    async saveGameAuto() {
+        if (!this.isUserLoggedIn) {
+            return;
+        }
+        
+        try {
+            // Make sure current level state is included in levelStates
+            this.levelStates[this.currentConfig] = {
+                board: this.board,
+                moveHistory: this.moveHistory,
+                currentConfig: this.currentConfig
+            };
+            
+            // Save all levels state
+            const allLevelsState = {
+                level_states: this.levelStates,
+                completed_levels: this.completedLevels,
+                current_level: this.currentConfig
+            };
+            
+            console.log('Auto-saving all levels state:', allLevelsState);
+            
+            const response = await fetch('/api/game-state/save-all-levels', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(allLevelsState)
+            });
+            
+            console.log('Auto-save response status:', response.status);
+            
+            if (response.ok) {
+                console.log('All levels state auto-saved successfully');
+            } else {
+                const errorText = await response.text();
+                console.error('Failed to auto-save all levels state:', errorText);
+            }
+        } catch (error) {
+            console.error('Error auto-saving game:', error);
+        }
+    }
+    
+    async saveGame() {
+        if (!this.isUserLoggedIn) {
+            alert('Please log in to save your game progress.');
+            return;
+        }
+        
+        try {
+            console.log('Before saving - levelStates:', this.levelStates);
+            console.log('Current config:', this.currentConfig);
+            console.log('Current board:', this.board);
+            console.log('Current moveHistory:', this.moveHistory);
+            
+            // Make sure current level state is included in levelStates
+            this.levelStates[this.currentConfig] = {
+                board: this.board,
+                moveHistory: this.moveHistory,
+                currentConfig: this.currentConfig
+            };
+            
+            console.log('After adding current level - levelStates:', this.levelStates);
+            
+            // Save all levels state
+            const allLevelsState = {
+                level_states: this.levelStates,
+                completed_levels: this.completedLevels,
+                current_level: this.currentConfig
+            };
+            
+            console.log('Saving all levels state:', allLevelsState);
+            
+            const response = await fetch('/api/game-state/save-all-levels', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(allLevelsState)
+            });
+            
+            console.log('Save response status:', response.status);
+            
+            if (response.ok) {
+                console.log('All levels state saved successfully');
+                
+                // Mark as saved
+                this.hasUnsavedChanges = false;
+                this.updateSaveButtonState();
+                
+                // Show success feedback
+                const saveBtn = document.getElementById('saveBtn');
+                const originalText = saveBtn.innerHTML;
+                saveBtn.innerHTML = '<i class="fas fa-check me-2"></i>Saved!';
+                saveBtn.classList.remove('btn-success');
+                saveBtn.classList.add('btn-success');
+                
+                // Reset button text after 2 seconds
+                setTimeout(() => {
+                    this.updateSaveButtonState();
+                }, 2000);
+            } else {
+                const errorText = await response.text();
+                console.error('Failed to save all levels state:', errorText);
+                alert('Failed to save game. Please try again.');
+            }
+        } catch (error) {
+            console.error('Error saving game:', error);
+            alert('Failed to save game. Please try again.');
+        }
+    }
+    
+    async markLevelCompleted(level) {
+        if (!this.isUserLoggedIn) return;
+        
+        try {
+            // Add level to completed levels if not already there
+            if (!this.completedLevels.includes(level)) {
+                this.completedLevels.push(level);
+                console.log(`Added ${level} to completed levels`);
+            }
+            
+            // Save all levels state to update completed levels on server
+            await this.saveGame();
+            
+            // Update user stats to reflect the change
+            this.updateUserStats();
+            
+            console.log(`Level ${level} marked as completed and saved`);
+        } catch (error) {
+            console.error('Error marking level as completed:', error);
+        }
+    }
+    
+    getGameStatus() {
+        const marblesLeft = this.countMarbles();
+        if (marblesLeft === 1) {
+            return 'Won!';
+        } else if (marblesLeft > 1 && !this.hasValidMoves()) {
+            return 'Stuck';
+        }
+        return 'Playing';
+    }
+    
+    updateUserStats() {
+        if (!this.isUserLoggedIn) {
+            document.getElementById('userStatsCard').style.display = 'none';
+            return;
+        }
+        
+        // Only show user stats if the user is actually logged in
+        document.getElementById('userStatsCard').style.display = 'block';
+        const completedCount = this.completedLevels.length;
+        const totalLevels = 7;
+        const progressPercentage = (completedCount / totalLevels) * 100;
+        
+        document.getElementById('completedLevels').textContent = completedCount;
+        document.getElementById('totalLevels').textContent = totalLevels;
+        document.getElementById('progressBar').style.width = `${progressPercentage}%`;
+        document.getElementById('progressBar').setAttribute('aria-valuenow', progressPercentage);
+    }
+    
+    updateSaveButtonState() {
+        const saveBtn = document.getElementById('saveBtn');
+        if (!this.isUserLoggedIn) {
+            saveBtn.disabled = true;
+            saveBtn.title = 'Please log in to save your game';
+        } else {
+            saveBtn.disabled = false;
+            if (this.hasUnsavedChanges) {
+                saveBtn.innerHTML = '<i class="fas fa-save me-2"></i>Save*';
+                saveBtn.classList.remove('btn-success');
+                saveBtn.classList.add('btn-warning');
+                saveBtn.title = 'Save progress for all levels (unsaved changes)';
+            } else {
+                saveBtn.innerHTML = '<i class="fas fa-save me-2"></i>Save Game';
+                saveBtn.classList.remove('btn-warning');
+                saveBtn.classList.add('btn-success');
+                saveBtn.title = 'Save progress for all levels';
+            }
+        }
+    }
 }
 
 // Initialize the game when the page loads
 document.addEventListener('DOMContentLoaded', () => {
-    new SkippingStonesGame();
+    const game = new SkippingStonesGame();
+    
+    // Add logout handler to clear session storage
+    window.addEventListener('beforeunload', () => {
+        // Clear session storage when page is unloaded (logout or navigation)
+        if (game.isUserLoggedIn) {
+            game.clearSessionStorage();
+        }
+    });
+    
+    // Add click handler for logout link
+    const logoutLink = document.querySelector('a[href*="logout"]');
+    if (logoutLink) {
+        logoutLink.addEventListener('click', () => {
+            if (game.isUserLoggedIn) {
+                game.clearSessionStorage();
+            }
+        });
+    }
 });
 </script>
 {% endblock %} 
