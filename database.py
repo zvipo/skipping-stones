@@ -9,6 +9,193 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
+def compress_board(board: List[List[bool]]) -> str:
+    """
+    Compress a 2D boolean board into a compact binary string representation.
+    Each row is converted to a binary string where 1 = true, 0 = false.
+    """
+    if not board:
+        return ""
+    
+    rows = len(board)
+    cols = len(board[0]) if board else 0
+    
+    # Convert each row to binary string
+    binary_rows = []
+    for row in board:
+        binary_row = ''.join('1' if cell else '0' for cell in row)
+        binary_rows.append(binary_row)
+    
+    # Join rows with a separator and add dimensions
+    compressed = f"{rows}x{cols}:{','.join(binary_rows)}"
+    return compressed
+
+def decompress_board(compressed: str) -> List[List[bool]]:
+    """
+    Decompress a binary string representation back to a 2D boolean board.
+    """
+    if not compressed:
+        return []
+    
+    try:
+        # Split dimensions and data
+        parts = compressed.split(':', 1)
+        if len(parts) != 2:
+            return []
+        
+        dimensions, data = parts
+        rows, cols = map(int, dimensions.split('x'))
+        
+        # Split binary rows
+        binary_rows = data.split(',')
+        
+        # Convert back to 2D boolean array
+        board = []
+        for binary_row in binary_rows:
+            row = [cell == '1' for cell in binary_row]
+            board.append(row)
+        
+        return board
+    except Exception as e:
+        print(f"Error decompressing board: {e}")
+        return []
+
+def compress_move_history(move_history: List[Dict]) -> str:
+    """
+    Compress move history by using shorter keys and removing redundant data.
+    """
+    if not move_history:
+        return ""
+    
+    compressed_moves = []
+    for move in move_history:
+        # Extract coordinates
+        from_pos = move.get('from', {})
+        to_pos = move.get('to', {})
+        
+        # Create compact representation: "from_col,from_row:to_col,to_row"
+        # The jumped position can be calculated as the midpoint
+        compressed_move = f"{from_pos.get('col', 0)},{from_pos.get('row', 0)}:{to_pos.get('col', 0)},{to_pos.get('row', 0)}"
+        compressed_moves.append(compressed_move)
+    
+    return '|'.join(compressed_moves)
+
+def decompress_move_history(compressed: str) -> List[Dict]:
+    """
+    Decompress move history back to full format.
+    """
+    if not compressed:
+        return []
+    
+    try:
+        # Check if it's the new format (pipe-separated) or old format (JSON)
+        if '|' in compressed:
+            # New format: "from_col,from_row:to_col,to_row"
+            move_strings = compressed.split('|')
+            move_history = []
+            
+            for move_str in move_strings:
+                if not move_str:
+                    continue
+                    
+                parts = move_str.split(':')
+                if len(parts) == 2:
+                    from_coords = parts[0].split(',')
+                    to_coords = parts[1].split(',')
+                    
+                    from_col, from_row = int(from_coords[0]), int(from_coords[1])
+                    to_col, to_row = int(to_coords[0]), int(to_coords[1])
+                    
+                    # Calculate jumped position as the midpoint
+                    jumped_col = (from_col + to_col) // 2
+                    jumped_row = (from_row + to_row) // 2
+                    
+                    move = {
+                        'from': {'col': from_col, 'row': from_row},
+                        'jumped': {'col': jumped_col, 'row': jumped_row},
+                        'to': {'col': to_col, 'row': to_row}
+                    }
+                    move_history.append(move)
+            
+            return move_history
+        else:
+            # Old format: JSON with short keys
+            compressed_moves = json.loads(compressed)
+            move_history = []
+            for move in compressed_moves:
+                full_move = {
+                    'from': move.get('f', {}),
+                    'jumped': move.get('j', {}),
+                    'to': move.get('t', {})
+                }
+                move_history.append(full_move)
+            return move_history
+    except Exception as e:
+        print(f"Error decompressing move history: {e}")
+        return []
+
+def compress_level_states(level_states: Dict[str, Any]) -> str:
+    """
+    Compress level states by compressing board and move history for each level.
+    """
+    if not level_states:
+        return ""
+    
+    compressed_levels = {}
+    for level_name, level_data in level_states.items():
+        compressed_level = {}
+        
+        # Compress board if present
+        if 'board' in level_data:
+            compressed_level['b'] = compress_board(level_data['board'])
+        
+        # Compress move history if present
+        if 'moveHistory' in level_data:
+            compressed_level['m'] = compress_move_history(level_data['moveHistory'])
+        
+        # Keep other fields as is
+        for key, value in level_data.items():
+            if key not in ['board', 'moveHistory']:
+                compressed_level[key] = value
+        
+        compressed_levels[level_name] = compressed_level
+    
+    return json.dumps(compressed_levels)
+
+def decompress_level_states(compressed: str) -> Dict[str, Any]:
+    """
+    Decompress level states back to full format.
+    """
+    if not compressed:
+        return {}
+    
+    try:
+        compressed_levels = json.loads(compressed)
+        level_states = {}
+        
+        for level_name, level_data in compressed_levels.items():
+            decompressed_level = {}
+            
+            # Decompress board if present
+            if 'b' in level_data:
+                decompressed_level['board'] = decompress_board(level_data['b'])
+            
+            # Decompress move history if present
+            if 'm' in level_data:
+                decompressed_level['moveHistory'] = decompress_move_history(level_data['m'])
+            
+            # Keep other fields as is
+            for key, value in level_data.items():
+                if key not in ['b', 'm']:
+                    decompressed_level[key] = value
+            
+            level_states[level_name] = decompressed_level
+        
+        return level_states
+    except Exception as e:
+        print(f"Error decompressing level states: {e}")
+        return {}
+
 class GameStateDB:
     def __init__(self):
         self.dynamodb = boto3.resource('dynamodb')
@@ -48,11 +235,18 @@ class GameStateDB:
     def save_game_state(self, user_id: str, game_state: Dict[str, Any]) -> bool:
         """Save the current game state for a user"""
         try:
+            # Compress board and move history
+            board_state = game_state.get('board_state', [])
+            move_history = game_state.get('move_history', [])
+            
+            compressed_board = compress_board(board_state)
+            compressed_moves = compress_move_history(move_history)
+            
             item = {
                 'user_id': user_id,
                 'current_level': game_state.get('current_level', 'level1'),
-                'board_state': json.dumps(game_state.get('board_state', [])),
-                'move_history': json.dumps(game_state.get('move_history', [])),
+                'board_state': compressed_board,
+                'move_history': compressed_moves,
                 'marbles_left': game_state.get('marbles_left', 0),
                 'moves_count': game_state.get('moves_count', 0),
                 'game_status': game_state.get('game_status', 'Playing'),
@@ -69,11 +263,15 @@ class GameStateDB:
     def save_all_levels_state(self, user_id: str, all_levels_state: Dict[str, Any]) -> bool:
         """Save all levels' state for a user"""
         try:
+            # Compress level states
+            level_states = all_levels_state.get('level_states', {})
+            compressed_level_states = compress_level_states(level_states)
+            
             item = {
                 'user_id': user_id,
                 'user_email': all_levels_state.get('user_email', ''),
                 'user_name': all_levels_state.get('user_name', ''),
-                'all_levels_state': json.dumps(all_levels_state.get('level_states', {})),
+                'all_levels_state': compressed_level_states,
                 'completed_levels': json.dumps(all_levels_state.get('completed_levels', [])),
                 'current_level': all_levels_state.get('current_level', 'level1'),
                 'last_updated': datetime.now().isoformat()
@@ -92,10 +290,19 @@ class GameStateDB:
             
             if 'Item' in response:
                 item = response['Item']
+                
+                # Decompress board and move history
+                board_state_str = item.get('board_state', '')
+                move_history_str = item.get('move_history', '')
+                
+                # Check if data is compressed (new format) or uncompressed (old format)
+                board_state = decompress_board(board_state_str) if board_state_str and ':' in board_state_str else json.loads(board_state_str or '[]')
+                move_history = decompress_move_history(move_history_str) if move_history_str else json.loads(move_history_str or '[]')
+                
                 return {
                     'current_level': item.get('current_level', 'level1'),
-                    'board_state': json.loads(item.get('board_state', '[]')),
-                    'move_history': json.loads(item.get('move_history', '[]')),
+                    'board_state': board_state,
+                    'move_history': move_history,
                     'marbles_left': item.get('marbles_left', 0),
                     'moves_count': item.get('moves_count', 0),
                     'game_status': item.get('game_status', 'Playing'),
@@ -114,10 +321,15 @@ class GameStateDB:
             
             if 'Item' in response:
                 item = response['Item']
+                
+                # Decompress level states
+                all_levels_state_str = item.get('all_levels_state', '')
+                level_states = decompress_level_states(all_levels_state_str) if all_levels_state_str else {}
+                
                 result = {
                     'user_email': item.get('user_email', ''),
                     'user_name': item.get('user_name', ''),
-                    'level_states': json.loads(item.get('all_levels_state', '{}')),
+                    'level_states': level_states,
                     'completed_levels': json.loads(item.get('completed_levels', '[]')),
                     'current_level': item.get('current_level', 'level1')
                 }
