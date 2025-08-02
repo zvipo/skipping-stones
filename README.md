@@ -7,6 +7,7 @@ A simple Flask web application for playing the Skipping Stones game with a moder
 - 🎮 Skipping Stones game
 - 🎨 Modern, responsive Bootstrap UI
 - 📱 Mobile-friendly design
+- 🔐 Optional Google OIDC authentication
 
 ## Prerequisites
 
@@ -21,7 +22,30 @@ A simple Flask web application for playing the Skipping Stones game with a moder
 pip install -r requirements.txt
 ```
 
-### 4. Run the Application
+### 2. Environment Setup (Optional)
+
+For Google OIDC authentication, create a `.env` file with the following variables:
+
+```bash
+# Flask Secret Key (required for sessions)
+SECRET_KEY=your-secret-key-change-this
+
+# Google OIDC Configuration (optional)
+# Get these from https://console.developers.google.com/
+# Create a new project and enable Google+ API
+GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+```
+
+**To set up Google OIDC:**
+1. Go to [Google Cloud Console](https://console.developers.google.com/)
+2. Create a new project or select an existing one
+3. Enable the Google+ API
+4. Create OAuth 2.0 credentials
+5. Add your domain to authorized redirect URIs (e.g., `https://yourdomain.com/callback`)
+6. Copy the Client ID and Client Secret to your `.env` file
+
+### 3. Run the Application
 
 ```bash
 python3 app.py
@@ -31,8 +55,9 @@ The application will be available at `http://localhost:5000`
 
 ## Usage
 
-1. **Home Page**: Visit the homepage to see the welcome screen
-2. **Game**: Click "Play Skipping Stones" to start the game
+1. **Home Page**: Visit the homepage to start playing the game
+2. **Authentication**: Click "Login" in the navigation bar to sign in with Google (optional)
+3. **Game**: The game is available to play with or without authentication
 
 ## Project Structure
 
@@ -52,6 +77,8 @@ skippingstones/
 ## Security Features
 
 - ✅ HTTPS-ready configuration
+- ✅ Optional Google OIDC authentication
+- ✅ Secure session management
 
 ## Customization
 
