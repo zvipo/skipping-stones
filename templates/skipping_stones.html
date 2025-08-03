@@ -342,8 +342,7 @@ class SkippingStonesGame {
     saveLevelState() {
         const levelState = {
             board: this.board,
-            moveHistory: this.moveHistory,
-            currentConfig: this.currentConfig
+            moveHistory: this.moveHistory
         };
         this.levelStates[this.currentConfig] = levelState;
         
@@ -1246,8 +1245,7 @@ class SkippingStonesGame {
             // Make sure current level state is included in levelStates
             this.levelStates[this.currentConfig] = {
                 board: this.board,
-                moveHistory: this.moveHistory,
-                currentConfig: this.currentConfig
+                moveHistory: this.moveHistory
             };
             
             console.log('After adding current level - levelStates:', this.levelStates);
@@ -1319,8 +1317,7 @@ class SkippingStonesGame {
             // Make sure current level state is included in levelStates
             const currentLevelState = {
                 board: this.board,
-                moveHistory: this.moveHistory,
-                currentConfig: this.currentConfig
+                moveHistory: this.moveHistory
             };
             
             console.log('Saving current level state for:', this.currentConfig);
@@ -1396,8 +1393,7 @@ class SkippingStonesGame {
             // Make sure current level state is included in levelStates
             this.levelStates[this.currentConfig] = {
                 board: this.board,
-                moveHistory: this.moveHistory,
-                currentConfig: this.currentConfig
+                moveHistory: this.moveHistory
             };
             
             console.log('After adding current level - levelStates:', this.levelStates);
@@ -1523,7 +1519,7 @@ class SkippingStonesGame {
         const saveBtn = document.getElementById('saveBtn');
         if (!this.isUserLoggedIn) {
             saveBtn.disabled = false;
-            saveBtn.innerHTML = '<i class="fab fa-google me-2"></i>Login';
+            saveBtn.innerHTML = '<i class="fab fa-googlegit  me-2"></i>Login';
             saveBtn.classList.remove('btn-success', 'btn-warning');
             saveBtn.classList.add('btn-primary');
             saveBtn.title = 'Please log in to save your game';
