@@ -67,6 +67,46 @@
         .footer a:hover {
             color: white;
         }
+
+        .footer-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .footer-links {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .privacy-notice {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            margin-top: 0.5rem;
+            font-size: 0.9rem;
+            max-width: 600px;
+            text-align: center;
+            border-left: 3px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .privacy-notice i {
+            margin-right: 0.5rem;
+            opacity: 0.8;
+        }
+
+        @media (max-width: 768px) {
+            .footer-content {
+                gap: 0.75rem;
+            }
+            
+            .privacy-notice {
+                font-size: 0.85rem;
+                padding: 0.5rem 0.75rem;
+            }
+        }
     </style>
 </head>
 <body>
@@ -150,9 +190,17 @@
 
     <footer class="footer">
         <div class="container">
-            <a href="https://github.com/zvipo/skipping-stones" target="_blank" rel="noopener noreferrer">
-                <i class="fab fa-github me-1"></i>Source Code
-            </a>
+            <div class="footer-content">
+                <div class="footer-links">
+                    <a href="https://github.com/zvipo/skipping-stones" target="_blank" rel="noopener noreferrer">
+                        <i class="fab fa-github me-1"></i>Source Code
+                    </a>
+                </div>
+                <div class="privacy-notice">
+                    <i class="fas fa-shield-alt"></i>
+                    <strong>Privacy Notice:</strong> When logged in, your name, email, and game state is saved to an external database and is visible to this website's developer.
+                </div>
+            </div>
         </div>
     </footer>
 
