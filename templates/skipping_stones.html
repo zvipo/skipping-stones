@@ -1522,18 +1522,22 @@ class SkippingStonesGame {
     updateSaveButtonState() {
         const saveBtn = document.getElementById('saveBtn');
         if (!this.isUserLoggedIn) {
-            saveBtn.disabled = true;
-            saveBtn.title = 'Please log in to save your game';
-        } else {
             saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i class="fab fa-google me-2"></i>Login';
+            saveBtn.classList.remove('btn-success', 'btn-warning');
+            saveBtn.classList.add('btn-primary');
+            saveBtn.title = 'Please log in to save your game';
+            saveBtn.onclick = () => window.location.href = '/login';
+        } else {
+            saveBtn.onclick = () => this.saveGame();
             if (this.hasUnsavedChanges) {
                 saveBtn.innerHTML = '<i class="fas fa-save me-2"></i>Save*';
-                saveBtn.classList.remove('btn-success');
+                saveBtn.classList.remove('btn-success', 'btn-outline-light');
                 saveBtn.classList.add('btn-warning');
                 saveBtn.title = 'Save progress for all levels (unsaved changes)';
             } else {
                 saveBtn.innerHTML = '<i class="fas fa-check me-2"></i>Saved!';
-                saveBtn.classList.remove('btn-warning');
+                saveBtn.classList.remove('btn-warning', 'btn-outline-light');
                 saveBtn.classList.add('btn-success');
                 saveBtn.title = 'All progress saved';
             }
