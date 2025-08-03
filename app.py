@@ -310,22 +310,23 @@ def callback():
     return redirect(url_for('skipping_stones'))
 
 @app.route('/logout')
-@login_required
 def logout():
-    # Save current game state before logout
-    if current_user.is_authenticated:
-        try:
-            # Get current game state from session or request
-            game_state = session.get('current_game_state', {})
-            if game_state:
-                db.save_game_state(current_user.id, game_state)
-        except Exception as e:
-            pass
-    
+    """Logout route that handles both authenticated and unauthenticated users"""
+    # Clear the session and logout user
     logout_user()
     session.clear()
     flash('You have been logged out', 'info')
     return redirect(url_for('skipping_stones'))
+
+
+
+@app.route('/api/auth/logout', methods=['POST'])
+def api_logout():
+    """API endpoint for logout that can be called from JavaScript"""
+    # Clear the session and logout user
+    logout_user()
+    session.clear()
+    return jsonify({'message': 'Logged out successfully'}), 200
 
 @app.route('/switch-account')
 def switch_account():
@@ -607,11 +608,14 @@ def load_all_levels_state():
     """Load all levels' state for the authenticated user"""
     try:
         if current_user.is_authenticated:
+            print(f"Loading all levels state for user: {current_user.id}")
             all_levels_state = db.load_all_levels_state(current_user.id)
             
             if all_levels_state:
+                print(f"Loaded all levels state: {all_levels_state}")
                 return jsonify(all_levels_state), 200
             else:
+                print(f"No saved state found for user: {current_user.id}")
                 # Return default state for new users
                 default_state = {
                     'level_states': {},
@@ -621,6 +625,7 @@ def load_all_levels_state():
                 }
                 return jsonify(default_state), 200
         else:
+            print("User not authenticated, returning default state")
             # Return default state for non-authenticated users
             default_state = {
                 'level_states': {},
@@ -631,6 +636,7 @@ def load_all_levels_state():
             return jsonify(default_state), 200
             
     except Exception as e:
+        print(f"Error loading all levels state: {e}")
         return jsonify({'error': 'Internal server error'}), 500
 
 @app.route('/api/user/stats')

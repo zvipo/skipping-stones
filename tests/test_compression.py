@@ -4,6 +4,12 @@ Test script to demonstrate the compression benefits of the new board representat
 """
 
 import json
+import sys
+import os
+
+# Add the parent directory to the path so we can import from the root
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from database import compress_board, decompress_board, compress_move_history, decompress_move_history, compress_level_states, decompress_level_states
 
 def test_board_compression():

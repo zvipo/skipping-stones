@@ -327,6 +327,17 @@ class SkippingStonesGame {
         this.init();
     }
     
+    // Validate that each level's move history is independent
+    validateLevelStates() {
+        console.log('Validating level states...');
+        for (const [levelKey, levelState] of Object.entries(this.levelStates)) {
+            console.log(`Level ${levelKey}:`);
+            console.log(`  - Board: ${levelState.board ? 'present' : 'missing'}`);
+            console.log(`  - MoveHistory: ${levelState.moveHistory ? levelState.moveHistory.length : 0} moves`);
+            console.log(`  - MoveHistory details:`, levelState.moveHistory);
+        }
+    }
+    
     // Save current level state to session storage
     saveLevelState() {
         const levelState = {
@@ -335,7 +346,15 @@ class SkippingStonesGame {
             currentConfig: this.currentConfig
         };
         this.levelStates[this.currentConfig] = levelState;
-        sessionStorage.setItem('skippingStonesLevelStates', JSON.stringify(this.levelStates));
+        
+        // Add timestamp to session storage
+        const sessionData = {
+            levelStates: this.levelStates,
+            timestamp: Date.now(),
+            userEmail: this.userEmail || 'anonymous'
+        };
+        sessionStorage.setItem('skippingStonesLevelStates', JSON.stringify(sessionData));
+        console.log('Saving level state for current level:', this.currentConfig, 'with', this.moveHistory.length, 'moves');
     }
     
     // Load level state from session storage
@@ -343,11 +362,28 @@ class SkippingStonesGame {
         const savedStates = sessionStorage.getItem('skippingStonesLevelStates');
         if (savedStates) {
             try {
-                this.levelStates = JSON.parse(savedStates);
+                const sessionData = JSON.parse(savedStates);
+                
+                // Check if session data is from a different user or too old
+                if (sessionData.userEmail && this.userEmail && sessionData.userEmail !== this.userEmail) {
+                    console.log('Session data belongs to different user, clearing');
+                    this.clearSessionStorage();
+                    return false;
+                }
+                
+                // Check if session data is older than 24 hours
+                if (sessionData.timestamp && (Date.now() - sessionData.timestamp) > 24 * 60 * 60 * 1000) {
+                    console.log('Session data is too old, clearing');
+                    this.clearSessionStorage();
+                    return false;
+                }
+                
+                this.levelStates = sessionData.levelStates || {};
                 const levelState = this.levelStates[configKey];
                 if (levelState) {
+                    console.log('Loading level state for:', configKey, 'with', levelState.moveHistory ? levelState.moveHistory.length : 0, 'moves');
                     this.board = levelState.board;
-                    this.moveHistory = levelState.moveHistory;
+                    this.moveHistory = levelState.moveHistory || [];
                     return true;
                 }
             } catch (error) {
@@ -361,15 +397,24 @@ class SkippingStonesGame {
     clearLevelState(configKey) {
         if (this.levelStates[configKey]) {
             delete this.levelStates[configKey];
-            sessionStorage.setItem('skippingStonesLevelStates', JSON.stringify(this.levelStates));
+            const sessionData = {
+                levelStates: this.levelStates,
+                timestamp: Date.now(),
+                userEmail: this.userEmail || 'anonymous'
+            };
+            sessionStorage.setItem('skippingStonesLevelStates', JSON.stringify(sessionData));
         }
     }
     
     // Clear all session storage
     clearSessionStorage() {
         sessionStorage.removeItem('skippingStonesLevelStates');
+        localStorage.removeItem('skippingStones_backup');
         this.levelStates = {};
-        console.log('Cleared session storage');
+        this.completedLevels = [];
+        this.moveHistory = [];
+        this.selectedMarble = null;
+        console.log('Cleared session storage and game state');
     }
     
     createBoard() {
@@ -391,6 +436,30 @@ class SkippingStonesGame {
         // Check if user is logged in and load their state
         await this.checkUserLoginStatus();
         
+        // If user is not logged in, clear any session storage that might belong to a logged-out user
+        if (!this.isUserLoggedIn) {
+            // Check if there's session data that might belong to a logged-out user
+            const savedStates = sessionStorage.getItem('skippingStonesLevelStates');
+            if (savedStates) {
+                try {
+                    const sessionData = JSON.parse(savedStates);
+                    // If session data has a user email but current user is not logged in, clear it
+                    if (sessionData.userEmail && sessionData.userEmail !== 'anonymous') {
+                        console.log('Detected session data from logged-out user, clearing');
+                        this.clearSessionStorage();
+                    }
+                } catch (error) {
+                    console.error('Error checking session data:', error);
+                    this.clearSessionStorage();
+                }
+            }
+            
+            // Force a fresh game state for non-authenticated users
+            this.loadConfiguration(this.currentConfig, true);
+            this.updateDisplay();
+            this.updateMoveHistory();
+        }
+        
         if (this.isUserLoggedIn) {
             // For logged-in users, don't load from session storage - load from server
             await this.loadUserGameState();
@@ -403,7 +472,18 @@ class SkippingStonesGame {
                 const savedStates = sessionStorage.getItem('skippingStonesLevelStates');
                 if (savedStates) {
                     try {
-                        this.levelStates = JSON.parse(savedStates);
+                        const sessionData = JSON.parse(savedStates);
+                        
+                        // Check if session data is from a different user or too old
+                        if (sessionData.userEmail && this.userEmail && sessionData.userEmail !== this.userEmail) {
+                            console.log('Session data belongs to different user, clearing');
+                            this.clearSessionStorage();
+                        } else if (sessionData.timestamp && (Date.now() - sessionData.timestamp) > 24 * 60 * 60 * 1000) {
+                            console.log('Session data is too old, clearing');
+                            this.clearSessionStorage();
+                        } else {
+                            this.levelStates = sessionData.levelStates || {};
+                        }
                     } catch (error) {
                         console.error('Error loading level states:', error);
                         this.levelStates = {};
@@ -469,6 +549,8 @@ class SkippingStonesGame {
     }
     
     selectConfiguration(configKey) {
+        console.log('Selecting configuration:', configKey, 'from current:', this.currentConfig);
+        
         // If we're already on this configuration, don't reset the game
         if (this.currentConfig === configKey) {
             // Just update the active configuration highlight without resetting
@@ -477,6 +559,7 @@ class SkippingStonesGame {
         }
         
         // Save current level state before switching
+        console.log('Saving current level state before switching');
         this.saveLevelState();
         
         // Switch to the new level
@@ -487,11 +570,13 @@ class SkippingStonesGame {
         
         if (hasSavedState) {
             // Use saved state
+            console.log('Using saved state for', configKey);
             this.updateDisplay();
             this.updateMoveHistory();
         } else {
-            // Load fresh configuration
-            this.loadConfiguration(configKey, true); // Don't clear history since we're loading fresh
+            // Load fresh configuration and clear history
+            console.log('Loading fresh configuration for', configKey);
+            this.loadConfiguration(configKey, false); // Clear history for fresh config
         }
         
         // Update level indicator
@@ -509,6 +594,8 @@ class SkippingStonesGame {
     }
     
     async loadConfiguration(configKey, preserveHistory = false) {
+        console.log('Loading configuration:', configKey, 'preserveHistory:', preserveHistory);
+        
         this.currentConfig = configKey;
         this.resetBoard();
         
@@ -523,7 +610,10 @@ class SkippingStonesGame {
         
         // Only clear history if not preserving it
         if (!preserveHistory) {
+            console.log('Clearing history because preserveHistory is false');
             this.clearHistory();
+        } else {
+            console.log('Preserving history because preserveHistory is true');
         }
         
         // Update level indicator
@@ -662,11 +752,14 @@ class SkippingStonesGame {
         this.board[toRow][toCol] = true;
         
         // Record the move
-        this.moveHistory.push({
+        const move = {
             from: { row: fromRow, col: fromCol },
             to: { row: toRow, col: toCol },
             jumped: { row: jumpRow, col: jumpCol }
-        });
+        };
+        this.moveHistory.push(move);
+        
+        console.log('Made move:', move, 'Total moves:', this.moveHistory.length);
         
         this.updateMoveHistory();
         this.checkGameStatus();
@@ -773,6 +866,8 @@ class SkippingStonesGame {
         const container = document.getElementById('moveHistory');
         container.innerHTML = '';
         
+        console.log('Updating move history display with', this.moveHistory.length, 'moves');
+        
         if (this.moveHistory.length === 0) {
             container.innerHTML = '<p class="text-muted text-center">No moves yet</p>';
             return;
@@ -797,7 +892,13 @@ class SkippingStonesGame {
         
         // Clear the level state for current level
         this.clearLevelState(this.currentConfig);
-        this.loadConfiguration(this.currentConfig);
+        
+        // Reset the board and move history to initial state
+        this.resetBoard();
+        this.clearHistory();
+        
+        // Load fresh configuration without preserving history
+        this.loadConfiguration(this.currentConfig, false);
         
         // Hide share button when game is reset
         this.hideShareButton();
@@ -810,6 +911,7 @@ class SkippingStonesGame {
         if (this.moveHistory.length === 0) return;
         
         const lastMove = this.moveHistory.pop();
+        console.log('Undoing move:', lastMove, 'Remaining moves:', this.moveHistory.length);
         
         // Restore the board state
         this.board[lastMove.from.row][lastMove.from.col] = true;
@@ -840,6 +942,7 @@ class SkippingStonesGame {
     }
     
     clearHistory() {
+        console.log('Clearing move history. Current moveHistory length:', this.moveHistory.length);
         this.moveHistory = [];
         this.updateMoveHistory();
     }
@@ -881,6 +984,13 @@ class SkippingStonesGame {
                 if (wasLoggedIn && !this.isUserLoggedIn) {
                     console.log('User session expired');
                     this.showSessionExpiredNotification();
+                    // Clear session storage since user is no longer logged in
+                    this.clearSessionStorage();
+                    
+                    // Reset game to initial state for non-authenticated user
+                    this.loadConfiguration(this.currentConfig, true);
+                    this.updateDisplay();
+                    this.updateMoveHistory();
                 }
                 
                 // If user is logged in, refresh their session
@@ -939,6 +1049,9 @@ class SkippingStonesGame {
     showSessionExpiredNotification() {
         // Save current game state to localStorage as backup
         this.saveGameStateToLocalStorage();
+        
+        // Clear session storage since user is no longer logged in
+        this.clearSessionStorage();
         
         // Create a notification element
         const notification = document.createElement('div');
@@ -1035,6 +1148,9 @@ class SkippingStonesGame {
                 console.log('Current config:', this.currentConfig);
                 console.log('Keys in levelStates:', Object.keys(this.levelStates));
                 
+                // Validate level states after loading from server
+                this.validateLevelStates();
+                
                 // Load current level state
                 const currentLevelState = this.levelStates[this.currentConfig];
                 console.log('Current level state:', currentLevelState);
@@ -1044,11 +1160,21 @@ class SkippingStonesGame {
                 if (currentLevelState) {
                     console.log('Loading board state:', currentLevelState.board);
                     console.log('Loading move history:', currentLevelState.moveHistory);
+                    console.log('Move history length:', currentLevelState.moveHistory ? currentLevelState.moveHistory.length : 0);
+                    console.log('Move history type:', typeof currentLevelState.moveHistory);
+                    console.log('Move history is array:', Array.isArray(currentLevelState.moveHistory));
+                    
+                    // Ensure we're loading the correct move history for this level
+                    const levelMoveHistory = currentLevelState.moveHistory || [];
+                    console.log('Level-specific move history for', this.currentConfig, ':', levelMoveHistory);
+                    
                     this.board = currentLevelState.board;
-                    this.moveHistory = currentLevelState.moveHistory || [];
+                    this.moveHistory = levelMoveHistory;
+                    console.log('Set moveHistory to:', this.moveHistory);
+                    console.log('Final moveHistory length:', this.moveHistory.length);
                     this.updateDisplay();
                     this.updateMoveHistory();
-                    console.log('Loaded saved state for current level');
+                    console.log('Loaded saved state for current level with', this.moveHistory.length, 'moves');
                 } else {
                     // Load fresh configuration for current level
                     console.log('No saved state for current level, loading fresh config');
@@ -1082,6 +1208,7 @@ class SkippingStonesGame {
                         this.board = gameState.board_state;
                         // Load move history
                         this.moveHistory = gameState.move_history || [];
+                        console.log('Fallback loading: board state loaded, move history length:', this.moveHistory.length);
                         // Update the move history display
                         this.updateMoveHistory();
                         // Update display without clearing history
@@ -1111,31 +1238,75 @@ class SkippingStonesGame {
         if (!this.isUserLoggedIn) return;
         
         try {
-            const gameState = {
-                current_level: this.currentConfig,
-                board_state: this.board,
-                move_history: this.moveHistory,
-                marbles_left: this.countMarbles(),
-                moves_count: this.moveHistory.length,
-                game_status: this.getGameStatus(),
-                completed_levels: this.completedLevels
+            console.log('Before saving - levelStates:', this.levelStates);
+            console.log('Current config:', this.currentConfig);
+            console.log('Current board:', this.board);
+            console.log('Current moveHistory:', this.moveHistory);
+            
+            // Make sure current level state is included in levelStates
+            this.levelStates[this.currentConfig] = {
+                board: this.board,
+                moveHistory: this.moveHistory,
+                currentConfig: this.currentConfig
             };
             
-            const response = await fetch('/api/game-state/save', {
+            console.log('After adding current level - levelStates:', this.levelStates);
+            
+            // Save all levels state
+            const allLevelsState = {
+                level_states: this.levelStates,
+                completed_levels: this.completedLevels,
+                current_level: this.currentConfig,
+                user_email: this.userEmail || '',
+                user_name: this.userName || ''
+            };
+            
+            console.log('Saving all levels state:', allLevelsState);
+            
+            const response = await fetch('/api/game-state/save-all-levels', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify(gameState)
+                body: JSON.stringify(allLevelsState)
             });
             
+            console.log('Save response status:', response.status);
+            
             if (response.ok) {
-                console.log('Game state saved successfully');
+                console.log('All levels state saved successfully');
+                
+                // Mark as saved
+                this.hasUnsavedChanges = false;
+                this.updateSaveButtonState();
+                
+                // Show success feedback
+                const saveBtn = document.getElementById('saveBtn');
+                saveBtn.innerHTML = '<i class="fas fa-check me-2"></i>Saved!';
+                saveBtn.classList.remove('btn-success');
+                saveBtn.classList.add('btn-success');
+            } else if (response.status === 401) {
+                // User is not authenticated, update login status and show notification
+                console.log('User not authenticated during save, updating login status');
+                this.isUserLoggedIn = false;
+                this.userEmail = null;
+                this.userName = null;
+                this.updateSaveButtonState();
+                this.showSessionExpiredNotification();
+                
+                // Ask user if they want to log in
+                if (confirm('Your session has expired. Would you like to log in again to save your progress?')) {
+                    window.location.href = '/login';
+                }
+                return;
             } else {
-                console.error('Failed to save game state');
+                const errorText = await response.text();
+                console.error('Failed to save all levels state:', errorText);
+                alert('Failed to save game. Please try again.');
             }
         } catch (error) {
-            console.error('Error saving game state:', error);
+            console.error('Error saving game:', error);
+            alert('Failed to save game. Please try again.');
         }
     }
     
@@ -1146,11 +1317,20 @@ class SkippingStonesGame {
         
         try {
             // Make sure current level state is included in levelStates
-            this.levelStates[this.currentConfig] = {
+            const currentLevelState = {
                 board: this.board,
                 moveHistory: this.moveHistory,
                 currentConfig: this.currentConfig
             };
+            
+            console.log('Saving current level state for:', this.currentConfig);
+            console.log('Current moveHistory:', this.moveHistory);
+            console.log('Current moveHistory length:', this.moveHistory.length);
+            
+            this.levelStates[this.currentConfig] = currentLevelState;
+            
+            console.log('Auto-saving level state for:', this.currentConfig, 'with', this.moveHistory.length, 'moves');
+            console.log('All levelStates before save:', this.levelStates);
             
             // Save all levels state
             const allLevelsState = {
@@ -1162,6 +1342,9 @@ class SkippingStonesGame {
             };
             
             console.log('Auto-saving all levels state:', allLevelsState);
+            
+            // Validate level states before saving
+            this.validateLevelStates();
             
             const response = await fetch('/api/game-state/save-all-levels', {
                 method: 'POST',
@@ -1175,6 +1358,16 @@ class SkippingStonesGame {
             
             if (response.ok) {
                 console.log('All levels state auto-saved successfully');
+                
+                // Mark as saved after successful auto-save
+                this.hasUnsavedChanges = false;
+                this.updateSaveButtonState();
+                
+                // Show success feedback for auto-save
+                const saveBtn = document.getElementById('saveBtn');
+                saveBtn.innerHTML = '<i class="fas fa-check me-2"></i>Saved!';
+                saveBtn.classList.remove('btn-success');
+                saveBtn.classList.add('btn-success');
             } else if (response.status === 401) {
                 // User is not authenticated, but don't redirect for auto-save
                 console.log('User not authenticated during auto-save, skipping');
@@ -1239,15 +1432,9 @@ class SkippingStonesGame {
                 
                 // Show success feedback
                 const saveBtn = document.getElementById('saveBtn');
-                const originalText = saveBtn.innerHTML;
                 saveBtn.innerHTML = '<i class="fas fa-check me-2"></i>Saved!';
                 saveBtn.classList.remove('btn-success');
                 saveBtn.classList.add('btn-success');
-                
-                // Reset button text after 2 seconds
-                setTimeout(() => {
-                    this.updateSaveButtonState();
-                }, 2000);
             } else if (response.status === 401) {
                 // User is not authenticated, update login status and show notification
                 console.log('User not authenticated during save, updating login status');
@@ -1532,10 +1719,54 @@ document.addEventListener('DOMContentLoaded', () => {
     // Add click handler for logout link
     const logoutLink = document.querySelector('a[href*="logout"]');
     if (logoutLink) {
-        logoutLink.addEventListener('click', () => {
+        logoutLink.addEventListener('click', async (e) => {
+            e.preventDefault();
+            
             if (game.isUserLoggedIn) {
-                game.clearSessionStorage();
+                try {
+                    // Call the API logout endpoint
+                    const response = await fetch('/api/auth/logout', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        }
+                    });
+                    
+                    if (response.ok) {
+                        // Clear session storage
+                        game.clearSessionStorage();
+                        // Clear localStorage backup
+                        localStorage.removeItem('skippingStones_backup');
+                        // Force login status check
+                        game.isUserLoggedIn = false;
+                        game.userEmail = null;
+                        game.userName = null;
+                        game.updateSaveButtonState();
+                        // Redirect to logout page
+                        window.location.href = '/logout';
+                    } else {
+                        // Fallback to direct logout
+                        window.location.href = '/logout';
+                    }
+                } catch (error) {
+                    console.error('Error during logout:', error);
+                    // Fallback to direct logout
+                    window.location.href = '/logout';
+                }
+            } else {
+                // User not logged in, just redirect
+                window.location.href = '/logout';
             }
+        });
+    }
+    
+    // Add click handler for switch account link
+    const switchAccountLink = document.querySelector('a[href*="switch-account"]');
+    if (switchAccountLink) {
+        switchAccountLink.addEventListener('click', (e) => {
+            // Clear session storage when switching accounts
+            game.clearSessionStorage();
+            localStorage.removeItem('skippingStones_backup');
         });
     }
     
