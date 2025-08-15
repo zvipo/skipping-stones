@@ -118,7 +118,7 @@ The DynamoDB table stores the following data for each user:
 - `current_level`: Current level being played
 - `board_state`: JSON representation of the game board
 - `move_history`: Array of moves made in the current game
-- `marbles_left`: Number of marbles remaining
+- `marbles_left`: Number of stones remaining
 - `moves_count`: Number of moves made
 - `game_status`: Current game status (Playing/Won/Stuck)
 - `completed_levels`: Array of completed level IDs
