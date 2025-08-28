@@ -308,6 +308,75 @@
     opacity: 0.6;
     cursor: not-allowed;
 }
+
+/* Game Board Login Button Styling */
+.google-login-game-btn {
+    background: linear-gradient(135deg, #007bff, #0056b3) !important;
+    background-size: 200% 200% !important;
+    animation: blue-gradient-game 3s ease infinite !important;
+    color: white !important;
+    border: none !important;
+    box-shadow: 0 6px 20px rgba(0, 123, 255, 0.5) !important;
+    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+    position: relative !important;
+    overflow: hidden !important;
+    font-weight: 600 !important;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.4) !important;
+}
+
+.google-login-game-btn::before {
+    content: '' !important;
+    position: absolute !important;
+    top: 0 !important;
+    left: -100% !important;
+    width: 100% !important;
+    height: 100% !important;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent) !important;
+    transition: left 0.6s ease !important;
+}
+
+.google-login-game-btn:hover {
+    transform: translateY(-2px) scale(1.03) !important;
+    box-shadow: 0 10px 30px rgba(0, 123, 255, 0.7) !important;
+    background-size: 150% 150% !important;
+}
+
+.google-login-game-btn:hover::before {
+    left: 100% !important;
+}
+
+.google-login-game-btn:active {
+    transform: translateY(0) scale(1.01) !important;
+    box-shadow: 0 4px 15px rgba(0, 123, 255, 0.6) !important;
+}
+
+@keyframes blue-gradient-game {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+.google-login-game-btn .fab.fa-google {
+    background: linear-gradient(135deg, #4285f4, #34a853, #fbbc05, #ea4335) !important;
+    background-size: 200% 200% !important;
+    -webkit-background-clip: text !important;
+    -webkit-text-fill-color: transparent !important;
+    background-clip: text !important;
+    animation: google-icon-pulse 2s ease-in-out infinite !important;
+    font-size: 1.1em !important;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3)) !important;
+}
+
+@keyframes google-icon-pulse {
+    0%, 100% {
+        background-size: 200% 200%;
+        transform: scale(1);
+    }
+    50% {
+        background-size: 150% 150%;
+        transform: scale(1.1);
+    }
+}
 </style>
 
 <script>
@@ -1519,13 +1588,14 @@ class SkippingStonesGame {
         const saveBtn = document.getElementById('saveBtn');
         if (!this.isUserLoggedIn) {
             saveBtn.disabled = false;
-            saveBtn.innerHTML = '<i class="fab fa-googlegit  me-2"></i>Login';
+            saveBtn.innerHTML = '<i class="fab fa-google me-2"></i>Login';
             saveBtn.classList.remove('btn-success', 'btn-warning');
-            saveBtn.classList.add('btn-primary');
+            saveBtn.classList.add('btn-primary', 'google-login-game-btn');
             saveBtn.title = 'Please log in to save your game';
             saveBtn.onclick = () => window.location.href = '/login';
         } else {
             saveBtn.onclick = () => this.saveGame();
+            saveBtn.classList.remove('google-login-game-btn');
             if (this.hasUnsavedChanges) {
                 saveBtn.innerHTML = '<i class="fas fa-save me-2"></i>Save*';
                 saveBtn.classList.remove('btn-success', 'btn-outline-light');

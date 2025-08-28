@@ -97,6 +97,68 @@
             opacity: 0.8;
         }
 
+        /* Google Login Button Styling */
+        .google-login-btn {
+            background: linear-gradient(135deg, #4285f4, #34a853, #fbbc05, #ea4335) !important;
+            background-size: 300% 300% !important;
+            animation: google-gradient 3s ease infinite !important;
+            color: white !important;
+            border-radius: 25px !important;
+            padding: 10px 24px !important;
+            font-weight: 700 !important;
+            text-decoration: none !important;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+            box-shadow: 0 6px 20px rgba(66, 133, 244, 0.5), 0 0 20px rgba(251, 188, 5, 0.3) !important;
+            border: 2px solid rgba(255, 255, 255, 0.4) !important;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.4) !important;
+            position: relative !important;
+            overflow: hidden !important;
+        }
+
+        .google-login-btn::before {
+            content: '' !important;
+            position: absolute !important;
+            top: 0 !important;
+            left: -100% !important;
+            width: 100% !important;
+            height: 100% !important;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent) !important;
+            transition: left 0.6s ease !important;
+        }
+
+        .google-login-btn:hover {
+            transform: translateY(-3px) scale(1.05) !important;
+            box-shadow: 0 10px 30px rgba(66, 133, 244, 0.7), 0 0 30px rgba(251, 188, 5, 0.5) !important;
+            color: white !important;
+            text-decoration: none !important;
+            background-size: 200% 200% !important;
+            border-color: rgba(255, 255, 255, 0.6) !important;
+        }
+
+        .google-login-btn:hover::before {
+            left: 100% !important;
+        }
+
+        .google-login-btn:active {
+            transform: translateY(-1px) scale(1.02) !important;
+            box-shadow: 0 4px 15px rgba(66, 133, 244, 0.6) !important;
+        }
+
+        @keyframes google-gradient {
+            0% { background-position: 0% 50%; }
+            25% { background-position: 100% 50%; }
+            50% { background-position: 100% 100%; }
+            75% { background-position: 0% 100%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        .google-login-btn .fab.fa-google {
+            color: white !important;
+            font-size: 1.2em !important;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.4) !important;
+            filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3)) !important;
+        }
+
         @media (max-width: 768px) {
             .footer-content {
                 gap: 0.75rem;
@@ -163,7 +225,7 @@
                         </ul>
                     </div>
                 {% else %}
-                    <a class="nav-link" href="{{ url_for('login') }}">
+                    <a class="nav-link google-login-btn" href="{{ url_for('login') }}">
                         <i class="fab fa-google me-1"></i>Login
                     </a>
                 {% endif %}
