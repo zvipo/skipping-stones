@@ -75,6 +75,49 @@ class SolverQueue:
             else:
                 print(f"Solver queue enqueue error: {e}")
 
+    def get_all_claimable(self, include_solving=False):
+        """Return all pending (and optionally solving) items, sorted by stone_count."""
+        try:
+            if include_solving:
+                response = self.table.scan(
+                    FilterExpression='#s IN (:pending, :solving)',
+                    ExpressionAttributeNames={'#s': 'status'},
+                    ExpressionAttributeValues={
+                        ':pending': 'pending',
+                        ':solving': 'solving',
+                    },
+                )
+            else:
+                response = self.table.scan(
+                    FilterExpression='#s = :pending',
+                    ExpressionAttributeNames={'#s': 'status'},
+                    ExpressionAttributeValues={':pending': 'pending'},
+                )
+            items = response.get('Items', [])
+            items.sort(key=lambda x: int(x.get('stone_count', 999)))
+            # Claim pending items atomically
+            for item in items:
+                if item.get('status') == 'pending':
+                    try:
+                        self.table.update_item(
+                            Key={'board_state': item['board_state']},
+                            UpdateExpression='SET #s = :solving, updated_at = :now',
+                            ConditionExpression='#s = :pending',
+                            ExpressionAttributeNames={'#s': 'status'},
+                            ExpressionAttributeValues={
+                                ':solving': 'solving',
+                                ':pending': 'pending',
+                                ':now': datetime.now().isoformat(),
+                            },
+                        )
+                        item['status'] = 'solving'
+                    except ClientError:
+                        pass  # Someone else claimed it
+            return items
+        except Exception as e:
+            print(f"Solver queue get_all_claimable error: {e}")
+            return []
+
     def claim_next(self, include_solving=False):
         """Scan for the next item with the lowest stone_count and
         atomically set its status to 'solving'. Returns the item dict or None.
