@@ -698,8 +698,12 @@ class SkippingStonesGame {
         // Check if current level is completed and show/hide share button accordingly
         this.checkGameStatus();
 
-        // Update hint if enabled
-        if (this.hintsEnabled) this.fetchHint();
+        // Turn off hints on level switch
+        if (this.hintsEnabled) {
+            this.hintsEnabled = false;
+            this.clearHint();
+            this.updateHintButtonState();
+        }
 
         // Update user stats
         this.updateUserStats();
@@ -749,8 +753,12 @@ class SkippingStonesGame {
         console.log('Saving level state for current level after config load...');
         this.saveLevelState();
 
-        // Update hint if enabled
-        if (this.hintsEnabled) this.fetchHint();
+        // Turn off hints on config load
+        if (this.hintsEnabled) {
+            this.hintsEnabled = false;
+            this.clearHint();
+            this.updateHintButtonState();
+        }
 
         // Update user stats
         this.updateUserStats();
@@ -904,8 +912,12 @@ class SkippingStonesGame {
         console.log('Saving level state for current level...');
         this.saveLevelState();
 
-        // Update hint if enabled
-        if (this.hintsEnabled) this.fetchHint();
+        // Turn off hints after each move
+        if (this.hintsEnabled) {
+            this.hintsEnabled = false;
+            this.clearHint();
+            this.updateHintButtonState();
+        }
 
         // Update user stats
         this.updateUserStats();
@@ -1031,8 +1043,12 @@ class SkippingStonesGame {
         // Hide share button when game is reset
         this.hideShareButton();
 
-        // Update hint if enabled
-        if (this.hintsEnabled) this.fetchHint();
+        // Turn off hints on reset
+        if (this.hintsEnabled) {
+            this.hintsEnabled = false;
+            this.clearHint();
+            this.updateHintButtonState();
+        }
 
         // Update user stats
         this.updateUserStats();
@@ -1068,8 +1084,12 @@ class SkippingStonesGame {
         console.log('Saving level state for current level after undo...');
         this.saveLevelState();
 
-        // Update hint if enabled
-        if (this.hintsEnabled) this.fetchHint();
+        // Turn off hints on undo
+        if (this.hintsEnabled) {
+            this.hintsEnabled = false;
+            this.clearHint();
+            this.updateHintButtonState();
+        }
 
         // Update user stats
         this.updateUserStats();
