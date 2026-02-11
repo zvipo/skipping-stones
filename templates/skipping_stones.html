@@ -1707,7 +1707,13 @@ class SkippingStonesGame {
                         } else {
                             this.hintsEnabled = false;
                             this.updateHintButtonState();
-                            if (msg.timed_out) {
+                            if (msg.no_solution) {
+                                this.showHintNotification('No solution exists from this position.', 'info');
+                            } else if (msg.queued && msg.timed_out) {
+                                this.showHintNotification('Solver timed out. Queued for background solving — check back later.', 'warning');
+                            } else if (msg.queued) {
+                                this.showHintNotification('Queued for background solving. Check back later.', 'info');
+                            } else if (msg.timed_out) {
                                 this.showHintNotification('Solver timed out.', 'warning');
                             } else {
                                 this.showHintNotification('No solution found from this position.', 'info');
@@ -1722,9 +1728,7 @@ class SkippingStonesGame {
             this.currentHint = null;
         } finally {
             if (requestId === this.hintRequestId) {
-                if (this.hintsEnabled) {
-                    hintBtn.innerHTML = '<i class="fas fa-lightbulb me-2"></i>Hint';
-                }
+                hintBtn.innerHTML = '<i class="fas fa-lightbulb me-2"></i>Hint';
                 this.renderBoard();
             }
         }

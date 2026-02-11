@@ -61,12 +61,22 @@ class SolverCache:
             else:
                 raise e
 
-    def get_solution(self, board_bits: int) -> Optional[List[Dict]]:
-        """Look up a cached solution by board bitmask. Returns None on miss."""
+    def get_solution(self, board_bits: int):
+        """Look up a cached solution by board bitmask.
+
+        Returns:
+            None        — cache miss (never seen this state)
+            "NO_SOLUTION" — definitively unsolvable
+            "QUEUED"      — queued for background solving
+            list        — cached solution moves
+        """
         try:
             response = self.table.get_item(Key={'board_state': str(board_bits)})
             if 'Item' in response:
-                return json.loads(response['Item']['solution'])
+                raw = response['Item']['solution']
+                if raw in ('NO_SOLUTION', 'QUEUED'):
+                    return raw
+                return json.loads(raw)
             return None
         except Exception as e:
             print(f"Solver cache lookup error: {e}")
@@ -83,6 +93,30 @@ class SolverCache:
             })
         except Exception as e:
             print(f"Solver cache write error: {e}")
+
+    def put_no_solution(self, board_bits: int, stone_count: int):
+        """Cache that a board state is definitively unsolvable."""
+        try:
+            self.table.put_item(Item={
+                'board_state': str(board_bits),
+                'solution': 'NO_SOLUTION',
+                'stone_count': stone_count,
+                'created_at': datetime.now().isoformat(),
+            })
+        except Exception as e:
+            print(f"Solver cache write error (no_solution): {e}")
+
+    def put_queued(self, board_bits: int, stone_count: int):
+        """Cache that a board state has been queued for background solving."""
+        try:
+            self.table.put_item(Item={
+                'board_state': str(board_bits),
+                'solution': 'QUEUED',
+                'stone_count': stone_count,
+                'created_at': datetime.now().isoformat(),
+            })
+        except Exception as e:
+            print(f"Solver cache write error (queued): {e}")
 
     def cache_solution_path(self, board_bits: int, solution: List[Dict], stone_count: int):
         """Cache every intermediate state along the solution path.

@@ -63,6 +63,15 @@ def _board_to_bits(board):
     return bits
 
 
+def _bits_to_board(bits):
+    """Convert a bitmask integer back to a 9x9 boolean board."""
+    board = [[False] * 9 for _ in range(9)]
+    for i, (r, c) in enumerate(VALID_CELLS):
+        if bits & (1 << i):
+            board[r][c] = True
+    return board
+
+
 def get_all_valid_moves(board):
     """Returns all legal moves as list of dicts."""
     moves = []
@@ -118,7 +127,8 @@ def solve(board, time_limit=5.0, progress_callback=None):
 
     failed = set()
     solution = []
-    deadline = time.monotonic() + time_limit
+    has_time_limit = time_limit is not None
+    deadline = time.monotonic() + time_limit if has_time_limit else 0
     moves_list = _PRECOMPUTED_MOVES
     check_interval = 0
     timed_out = False
@@ -131,14 +141,15 @@ def solve(board, time_limit=5.0, progress_callback=None):
             return True
 
         # Check time every 4096 calls to reduce overhead
-        check_interval += 1
-        if check_interval & 4095 == 0:
-            if time.monotonic() > deadline:
-                timed_out = True
-                return False
+        if has_time_limit:
+            check_interval += 1
+            if check_interval & 4095 == 0:
+                if time.monotonic() > deadline:
+                    timed_out = True
+                    return False
 
-        if timed_out:
-            return False
+            if timed_out:
+                return False
 
         if state in failed:
             return False
