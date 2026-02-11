@@ -7,7 +7,8 @@ from datetime import datetime, timedelta
 import jwt
 import json
 from database import db
-from solver import get_hint
+from solver import get_hint, _board_to_bits
+from solver_cache import solver_cache
 from functools import wraps
 from PIL import Image, ImageDraw, ImageFont
 import io
@@ -32,6 +33,12 @@ try:
     db.create_table_if_not_exists()
 except Exception as e:
     print(f"Database initialization error: {e}")
+
+# Initialize solver cache
+try:
+    solver_cache.create_table_if_not_exists()
+except Exception as e:
+    print(f"Solver cache initialization error: {e}")
 
 # Google OIDC configuration
 GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
@@ -435,12 +442,27 @@ def get_game_configs():
 def get_game_hint():
     data = request.get_json()
     board = data.get('board')  # 9x9 boolean array
-    # Count stones to scale time limit for larger boards
     stone_count = sum(1 for row in board for cell in row if cell)
+
+    # Check solver cache first
+    bits = _board_to_bits(board)
+    try:
+        cached = solver_cache.get_solution(bits)
+        if cached:
+            return jsonify({'hint': cached[0]})
+    except Exception:
+        pass
+
+    # Cache miss — solve live
     time_limit = 5.0 if stone_count <= 20 else 10.0
     from solver import solve
     solution = solve(board, time_limit=time_limit)
     if solution and len(solution) > 0:
+        # Write-through: cache the entire solution path
+        try:
+            solver_cache.cache_solution_path(bits, solution, stone_count)
+        except Exception:
+            pass
         return jsonify({'hint': solution[0]})
     return jsonify({'hint': None})
 
