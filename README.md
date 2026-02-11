@@ -12,6 +12,8 @@ A simple Flask web application for playing the Skipping Stones game with a moder
 - 📊 User progress tracking
 - 🔄 Automatic game state saving
 - 🏆 Level completion tracking
+- 💡 Hint system with DFS solver and shared DynamoDB cache
+- ⏳ Background solve queue for complex boards that time out
 
 ## Prerequisites
 
@@ -76,19 +78,49 @@ The application will be available at `http://localhost:5000`
 4. **State Persistence**: When logged in, your game state is automatically saved and restored
 5. **Progress Tracking**: Completed levels are tracked and displayed with checkmarks
 
+## Hint System
+
+The game includes a solver-powered hint system. When a player clicks "Hint", the server runs a DFS backtracking solver to find a path to 1 stone remaining, then highlights the next move.
+
+- **Solver cache**: Solutions are cached in a shared DynamoDB table (`skipping-stones-solver-cache`). Every intermediate state along a solution path is also cached, so subsequent hints from the same game are instant.
+- **Background solve queue**: If the solver times out (10 seconds), the board state is queued in a DynamoDB table (`skipping-stones-solver-queue`) and solved asynchronously by a background worker thread — with no time limit. Once solved, the result is written to the solver cache for instant future hints.
+- **Negative caching**: States that are definitively unsolvable (exhaustive search, no timeout) are cached so repeat requests return immediately with "No solution exists."
+
+### Solve Queue CLI
+
+A local CLI utility is provided for manually solving queued states (often faster than the background worker):
+
+```bash
+python3 solve_queue.py           # solve one pending item
+python3 solve_queue.py --all     # solve all pending items
+python3 solve_queue.py --stats   # show queue statistics
+python3 solve_queue.py --cleanup # remove solved/failed items from queue
+```
+
+### Environment Variables (Hint System)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SOLVER_CACHE_TABLE_NAME` | `skipping-stones-solver-cache` | DynamoDB table for cached solutions |
+| `SOLVER_QUEUE_TABLE_NAME` | `skipping-stones-solver-queue` | DynamoDB table for the background solve queue |
+
 ## Project Structure
 
 ```
 skippingstones/
 ├── app.py                 # Main Flask application
-├── database.py           # DynamoDB database operations
+├── database.py            # DynamoDB database operations
+├── solver.py              # DFS backtracking peg solitaire solver
+├── solver_cache.py        # DynamoDB cache for solver solutions
+├── solver_queue.py        # DynamoDB queue for timed-out board states
+├── solve_queue.py         # CLI utility for solving queued states
 ├── requirements.txt       # Python dependencies
-├── SETUP.md             # AWS setup instructions
-├── README.md            # This file
-└── templates/           # HTML templates
-    ├── base.html        # Base template with navigation
-    ├── index.html       # Home page
-    ├── login.html       # Login page
+├── SETUP.md               # AWS setup instructions
+├── README.md              # This file
+└── templates/             # HTML templates
+    ├── base.html          # Base template with navigation
+    ├── index.html         # Home page
+    ├── login.html         # Login page
     └── skipping_stones.html  # Game page
 ```
 

@@ -7,8 +7,9 @@ from datetime import datetime, timedelta
 import jwt
 import json
 from database import db
-from solver import get_hint, solve, _board_to_bits
+from solver import get_hint, solve, _board_to_bits, _bits_to_board
 from solver_cache import solver_cache
+from solver_queue import solver_queue
 from functools import wraps
 from PIL import Image, ImageDraw, ImageFont
 import io
@@ -40,6 +41,12 @@ try:
     solver_cache.create_table_if_not_exists()
 except Exception as e:
     print(f"Solver cache initialization error: {e}")
+
+# Initialize solver queue
+try:
+    solver_queue.create_table_if_not_exists()
+except Exception as e:
+    print(f"Solver queue initialization error: {e}")
 
 # Google OIDC configuration
 GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
@@ -452,6 +459,16 @@ def get_game_hint():
     bits = _board_to_bits(board)
     try:
         cached = solver_cache.get_solution(bits)
+        if cached == 'NO_SOLUTION':
+            return Response(
+                json.dumps({'type': 'result', 'hint': None, 'no_solution': True}) + '\n',
+                mimetype='application/x-ndjson'
+            )
+        if cached == 'QUEUED':
+            return Response(
+                json.dumps({'type': 'result', 'hint': None, 'queued': True}) + '\n',
+                mimetype='application/x-ndjson'
+            )
         if cached:
             return Response(
                 json.dumps({'type': 'result', 'hint': cached[0]}) + '\n',
@@ -461,7 +478,7 @@ def get_game_hint():
         pass
 
     # Cache miss — solve live with progress streaming
-    time_limit = 60.0
+    time_limit = 10.0
     q = queue_mod.Queue()
 
     def solver_thread():
@@ -487,7 +504,13 @@ def get_game_hint():
                 elapsed = time.monotonic() - start
                 yield json.dumps({'type': 'progress', 'elapsed': round(elapsed, 1), 'time_limit': round(time_limit, 1)}) + '\n'
                 if elapsed > time_limit + 5:
-                    yield json.dumps({'type': 'result', 'hint': None, 'timed_out': True}) + '\n'
+                    # Enqueue for background solving
+                    try:
+                        solver_queue.enqueue(bits, stone_count)
+                        solver_cache.put_queued(bits, stone_count)
+                    except Exception:
+                        pass
+                    yield json.dumps({'type': 'result', 'hint': None, 'timed_out': True, 'queued': True}) + '\n'
                     return
                 continue
 
@@ -501,8 +524,21 @@ def get_game_hint():
                     except Exception:
                         pass
                     yield json.dumps({'type': 'result', 'hint': solution[0]}) + '\n'
+                elif did_timeout:
+                    # Enqueue for background solving
+                    try:
+                        solver_queue.enqueue(bits, stone_count)
+                        solver_cache.put_queued(bits, stone_count)
+                    except Exception:
+                        pass
+                    yield json.dumps({'type': 'result', 'hint': None, 'timed_out': True, 'queued': True}) + '\n'
                 else:
-                    yield json.dumps({'type': 'result', 'hint': None, 'timed_out': did_timeout}) + '\n'
+                    # Exhaustive search found no solution — cache negative result
+                    try:
+                        solver_cache.put_no_solution(bits, stone_count)
+                    except Exception:
+                        pass
+                    yield json.dumps({'type': 'result', 'hint': None, 'no_solution': True}) + '\n'
                 return
 
     resp = Response(generate(), mimetype='application/x-ndjson')
@@ -956,18 +992,60 @@ def create_share_image(level_name, level_description, board_state, moves_count, 
     except Exception as e:
         raise e
 
+def background_solver_worker():
+    """Daemon thread that continuously solves queued board states."""
+    import threading as _threading
+    while True:
+        try:
+            item = solver_queue.claim_next()
+            if item is None:
+                time.sleep(30)
+                continue
+
+            bits = int(item['board_state'])
+            sc = int(item['stone_count'])
+            board = _bits_to_board(bits)
+            print(f"[background-solver] Solving queued state: {bits} ({sc} stones)")
+
+            start = time.monotonic()
+            solution = solve(board, time_limit=None)
+            elapsed = time.monotonic() - start
+
+            if solution is not None and len(solution) > 0:
+                solver_cache.cache_solution_path(bits, solution, sc)
+                solver_queue.mark_solved(bits)
+                print(f"[background-solver] Solved {bits} in {elapsed:.1f}s ({len(solution)} moves)")
+            else:
+                solver_cache.put_no_solution(bits, sc)
+                solver_queue.mark_failed(bits)
+                print(f"[background-solver] No solution for {bits} ({elapsed:.1f}s)")
+        except Exception as e:
+            print(f"[background-solver] Error: {e}")
+            # Release the item so it can be retried
+            try:
+                if item:
+                    solver_queue.release(int(item['board_state']))
+            except Exception:
+                pass
+            time.sleep(5)
+
+
 if __name__ == '__main__':
     # Set up periodic cleanup (every hour)
     import threading
     import time
-    
+
     def periodic_cleanup():
         while True:
             time.sleep(3600)  # Run every hour
             cleanup_old_sessions()
-    
+
     # Start cleanup thread
     cleanup_thread = threading.Thread(target=periodic_cleanup, daemon=True)
     cleanup_thread.start()
-    
+
+    # Start background solver worker
+    solver_worker = threading.Thread(target=background_solver_worker, daemon=True)
+    solver_worker.start()
+
     app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
