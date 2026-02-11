@@ -31,7 +31,7 @@
                                 <i class="fas fa-undo me-2"></i>Undo
                             </button>
                             <button id="hintBtn" class="btn btn-outline-info">
-                                <i class="fas fa-lightbulb me-2"></i>Hints
+                                <i class="fas fa-lightbulb me-2"></i>Hint
                             </button>
                         </div>
                     </div>
@@ -698,8 +698,10 @@ class SkippingStonesGame {
         // Check if current level is completed and show/hide share button accordingly
         this.checkGameStatus();
 
-        // Update hint if enabled
-        if (this.hintsEnabled) this.fetchHint();
+        // Turn off hints on level switch
+        if (this.hintsEnabled) {
+            this.cancelHintSolving();
+        }
 
         // Update user stats
         this.updateUserStats();
@@ -749,8 +751,10 @@ class SkippingStonesGame {
         console.log('Saving level state for current level after config load...');
         this.saveLevelState();
 
-        // Update hint if enabled
-        if (this.hintsEnabled) this.fetchHint();
+        // Turn off hints on config load
+        if (this.hintsEnabled) {
+            this.cancelHintSolving();
+        }
 
         // Update user stats
         this.updateUserStats();
@@ -904,8 +908,10 @@ class SkippingStonesGame {
         console.log('Saving level state for current level...');
         this.saveLevelState();
 
-        // Update hint if enabled
-        if (this.hintsEnabled) this.fetchHint();
+        // Turn off hints after each move
+        if (this.hintsEnabled) {
+            this.cancelHintSolving();
+        }
 
         // Update user stats
         this.updateUserStats();
@@ -1031,8 +1037,10 @@ class SkippingStonesGame {
         // Hide share button when game is reset
         this.hideShareButton();
 
-        // Update hint if enabled
-        if (this.hintsEnabled) this.fetchHint();
+        // Turn off hints on reset
+        if (this.hintsEnabled) {
+            this.cancelHintSolving();
+        }
 
         // Update user stats
         this.updateUserStats();
@@ -1068,8 +1076,10 @@ class SkippingStonesGame {
         console.log('Saving level state for current level after undo...');
         this.saveLevelState();
 
-        // Update hint if enabled
-        if (this.hintsEnabled) this.fetchHint();
+        // Turn off hints on undo
+        if (this.hintsEnabled) {
+            this.cancelHintSolving();
+        }
 
         // Update user stats
         this.updateUserStats();
@@ -1623,14 +1633,22 @@ class SkippingStonesGame {
     }
     
     toggleHints() {
-        this.hintsEnabled = !this.hintsEnabled;
-        this.updateHintButtonState();
         if (this.hintsEnabled) {
-            this.fetchHint();
-        } else {
-            this.clearHint();
+            this.cancelHintSolving();
             this.renderBoard();
+        } else {
+            this.hintsEnabled = true;
+            this.updateHintButtonState();
+            this.fetchHint();
         }
+    }
+
+    cancelHintSolving() {
+        this.hintsEnabled = false;
+        this.hintRequestId++;
+        document.getElementById('hintBtn').innerHTML = '<i class="fas fa-lightbulb me-2"></i>Hint';
+        this.clearHint();
+        this.updateHintButtonState();
     }
 
     updateHintButtonState() {
@@ -1647,28 +1665,69 @@ class SkippingStonesGame {
     async fetchHint() {
         if (!this.hintsEnabled) return;
         const requestId = ++this.hintRequestId;
+        const hintBtn = document.getElementById('hintBtn');
+
         try {
+            hintBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Solving...';
+
             const response = await fetch('/api/skipping-stones/hint', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ board: this.board })
             });
-            if (requestId !== this.hintRequestId) return; // stale response
-            if (response.ok) {
-                const data = await response.json();
-                this.currentHint = data.hint;
-                if (this.currentHint) {
-                    this.selectedMarble = { row: this.currentHint.from_row, col: this.currentHint.from_col };
-                }
-            } else {
+            if (requestId !== this.hintRequestId) return;
+            if (!response.ok) {
                 this.currentHint = null;
+                return;
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (requestId !== this.hintRequestId) return;
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop(); // keep incomplete line in buffer
+
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+                    const msg = JSON.parse(line);
+                    if (msg.type === 'progress') {
+                        const elapsed = Math.floor(msg.elapsed);
+                        hintBtn.innerHTML = `<i class="fas fa-spinner fa-spin me-2"></i>Solving... ${elapsed}s`;
+                    } else if (msg.type === 'result') {
+                        this.currentHint = msg.hint;
+                        if (this.currentHint) {
+                            this.selectedMarble = { row: this.currentHint.from_row, col: this.currentHint.from_col };
+                        } else {
+                            this.hintsEnabled = false;
+                            this.updateHintButtonState();
+                            if (msg.timed_out) {
+                                this.showHintNotification('Solver timed out.', 'warning');
+                            } else {
+                                this.showHintNotification('No solution found from this position.', 'info');
+                            }
+                        }
+                    }
+                }
             }
         } catch (error) {
             if (requestId !== this.hintRequestId) return;
             console.error('Error fetching hint:', error);
             this.currentHint = null;
+        } finally {
+            if (requestId === this.hintRequestId) {
+                if (this.hintsEnabled) {
+                    hintBtn.innerHTML = '<i class="fas fa-lightbulb me-2"></i>Hint';
+                }
+                this.renderBoard();
+            }
         }
-        this.renderBoard();
     }
 
     clearHint() {
@@ -1678,6 +1737,22 @@ class SkippingStonesGame {
             this.selectedMarble = null;
         }
         this.currentHint = null;
+    }
+
+    showHintNotification(message, type) {
+        const existing = document.getElementById('hintNotification');
+        if (existing) existing.remove();
+
+        const alert = document.createElement('div');
+        alert.id = 'hintNotification';
+        alert.className = `alert alert-${type} alert-dismissible fade show mt-2 mb-0 py-2 px-3`;
+        alert.style.fontSize = '0.85em';
+        alert.innerHTML = `${message}<button type="button" class="btn-close btn-close-sm" data-bs-dismiss="alert"></button>`;
+
+        const hintBtn = document.getElementById('hintBtn');
+        hintBtn.parentNode.insertBefore(alert, hintBtn.nextSibling);
+
+        setTimeout(() => { if (alert.parentNode) alert.remove(); }, 5000);
     }
 
     getGameStatus() {

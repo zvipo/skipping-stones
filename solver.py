@@ -102,12 +102,13 @@ def _count_stones(board):
     return count
 
 
-def solve(board, time_limit=5.0):
+def solve(board, time_limit=5.0, progress_callback=None):
     """
     DFS backtracking solver with transposition table using bitmask representation.
 
     Returns list of moves leading to 1 stone remaining, or None.
     Includes a configurable time limit (default 5 seconds).
+    Optional progress_callback(current, total) is called after each top-level branch.
     """
     state = _board_to_bits(board)
     stone_count = bin(state).count('1')
@@ -121,9 +122,10 @@ def solve(board, time_limit=5.0):
     moves_list = _PRECOMPUTED_MOVES
     check_interval = 0
     timed_out = False
+    top_move_index = 0
 
     def dfs(state, remaining):
-        nonlocal check_interval, timed_out
+        nonlocal check_interval, timed_out, top_move_index
 
         if remaining == 1:
             return True
@@ -140,6 +142,16 @@ def solve(board, time_limit=5.0):
 
         if state in failed:
             return False
+
+        is_top_level = remaining == stone_count
+
+        # Count valid top-level moves for progress reporting
+        if is_top_level and progress_callback:
+            total_top_moves = 0
+            for from_bit, to_bit, jump_bit, fr, fc, tr, tc, jr, jc in moves_list:
+                if (state & from_bit) and not (state & to_bit) and (state & jump_bit):
+                    total_top_moves += 1
+            top_move_index = 0
 
         found_move = False
         for from_bit, to_bit, jump_bit, fr, fc, tr, tc, jr, jc in moves_list:
@@ -166,6 +178,11 @@ def solve(board, time_limit=5.0):
 
             if timed_out:
                 return False
+
+            # Report progress after each top-level branch
+            if is_top_level and progress_callback:
+                top_move_index += 1
+                progress_callback(top_move_index, total_top_moves)
 
         if not timed_out:
             failed.add(state)
