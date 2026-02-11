@@ -34,4 +34,4 @@ USER appuser
 EXPOSE 5000
 
 # Run the app using gunicorn with single worker to avoid session sharing issues
-CMD ["gunicorn", "-b", "0.0.0.0:5000", "--workers", "1", "--timeout", "120", "app:app"] 
+CMD ["gunicorn", "-b", "0.0.0.0:5000", "--workers", "1", "--threads", "4", "--timeout", "120", "app:app"] 

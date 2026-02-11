@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, send_file
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, send_file, Response
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 import requests
 import os
@@ -7,12 +7,13 @@ from datetime import datetime, timedelta
 import jwt
 import json
 from database import db
-from solver import get_hint, _board_to_bits
+from solver import get_hint, solve, _board_to_bits
 from solver_cache import solver_cache
 from functools import wraps
 from PIL import Image, ImageDraw, ImageFont
 import io
 import base64
+import time
 
 # Load environment variables
 load_dotenv()
@@ -440,6 +441,9 @@ def get_game_configs():
 
 @app.route('/api/skipping-stones/hint', methods=['POST'])
 def get_game_hint():
+    import threading
+    import queue as queue_mod
+
     data = request.get_json()
     board = data.get('board')  # 9x9 boolean array
     stone_count = sum(1 for row in board for cell in row if cell)
@@ -449,22 +453,62 @@ def get_game_hint():
     try:
         cached = solver_cache.get_solution(bits)
         if cached:
-            return jsonify({'hint': cached[0]})
+            return Response(
+                json.dumps({'type': 'result', 'hint': cached[0]}) + '\n',
+                mimetype='application/x-ndjson'
+            )
     except Exception:
         pass
 
-    # Cache miss — solve live
-    time_limit = 5.0 if stone_count <= 20 else 10.0
-    from solver import solve
-    solution = solve(board, time_limit=time_limit)
-    if solution and len(solution) > 0:
-        # Write-through: cache the entire solution path
+    # Cache miss — solve live with progress streaming
+    time_limit = 60.0
+    q = queue_mod.Queue()
+
+    def solver_thread():
         try:
-            solver_cache.cache_solution_path(bits, solution, stone_count)
+            start = time.monotonic()
+            solution = solve(board, time_limit=time_limit)
+            elapsed = time.monotonic() - start
+            did_timeout = solution is None and elapsed >= time_limit * 0.9
+            q.put(('done', solution, did_timeout))
         except Exception:
-            pass
-        return jsonify({'hint': solution[0]})
-    return jsonify({'hint': None})
+            q.put(('done', None, False))
+
+    t = threading.Thread(target=solver_thread, daemon=True)
+    t.start()
+
+    def generate():
+        start = time.monotonic()
+        while True:
+            try:
+                msg = q.get(timeout=0.5)
+            except queue_mod.Empty:
+                # No result yet — emit time-based progress
+                elapsed = time.monotonic() - start
+                yield json.dumps({'type': 'progress', 'elapsed': round(elapsed, 1), 'time_limit': round(time_limit, 1)}) + '\n'
+                if elapsed > time_limit + 5:
+                    yield json.dumps({'type': 'result', 'hint': None, 'timed_out': True}) + '\n'
+                    return
+                continue
+
+            if msg[0] == 'done':
+                solution = msg[1]
+                did_timeout = msg[2]
+                if solution and len(solution) > 0:
+                    # Write-through: cache the entire solution path
+                    try:
+                        solver_cache.cache_solution_path(bits, solution, stone_count)
+                    except Exception:
+                        pass
+                    yield json.dumps({'type': 'result', 'hint': solution[0]}) + '\n'
+                else:
+                    yield json.dumps({'type': 'result', 'hint': None, 'timed_out': did_timeout}) + '\n'
+                return
+
+    resp = Response(generate(), mimetype='application/x-ndjson')
+    resp.headers['Cache-Control'] = 'no-cache'
+    resp.headers['X-Accel-Buffering'] = 'no'
+    return resp
 
 @app.route('/api/game-state/save', methods=['POST'])
 @api_login_required
@@ -926,4 +970,4 @@ if __name__ == '__main__':
     cleanup_thread = threading.Thread(target=periodic_cleanup, daemon=True)
     cleanup_thread.start()
     
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
