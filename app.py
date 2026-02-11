@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import jwt
 import json
 from database import db
+from solver import get_hint
 from functools import wraps
 from PIL import Image, ImageDraw, ImageFont
 import io
@@ -429,6 +430,19 @@ def get_game_configs():
         }
     }
     return configs
+
+@app.route('/api/skipping-stones/hint', methods=['POST'])
+def get_game_hint():
+    data = request.get_json()
+    board = data.get('board')  # 9x9 boolean array
+    # Count stones to scale time limit for larger boards
+    stone_count = sum(1 for row in board for cell in row if cell)
+    time_limit = 5.0 if stone_count <= 20 else 10.0
+    from solver import solve
+    solution = solve(board, time_limit=time_limit)
+    if solution and len(solution) > 0:
+        return jsonify({'hint': solution[0]})
+    return jsonify({'hint': None})
 
 @app.route('/api/game-state/save', methods=['POST'])
 @api_login_required

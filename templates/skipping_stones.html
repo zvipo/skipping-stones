@@ -30,6 +30,9 @@
                             <button id="undoBtn" class="btn btn-secondary">
                                 <i class="fas fa-undo me-2"></i>Undo
                             </button>
+                            <button id="hintBtn" class="btn btn-outline-info">
+                                <i class="fas fa-lightbulb me-2"></i>Hints
+                            </button>
                         </div>
                     </div>
                     
@@ -233,6 +236,18 @@
 .cell.selected {
     background: #28a745;
     border: 2px solid #20c997;
+    animation: selected-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes selected-pulse {
+    0%, 100% {
+        transform: scale(1);
+        box-shadow: 0 0 4px rgba(40, 167, 69, 0.4);
+    }
+    50% {
+        transform: scale(1.08);
+        box-shadow: 0 0 12px rgba(40, 167, 69, 0.7);
+    }
 }
 
 .cell.valid-move {
@@ -245,6 +260,29 @@
     cursor: not-allowed !important;
     opacity: 0.6 !important;
     border-color: #495057 !important;
+}
+
+.cell.hint-source {
+    background: #e83e8c !important;
+    border: 2px solid #c2185b !important;
+    animation: hint-pulse 1.5s ease-in-out infinite;
+}
+
+.cell.hint-destination {
+    background: #f8f9fa;
+    border: 3px dashed #e83e8c !important;
+    animation: hint-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes hint-pulse {
+    0%, 100% {
+        transform: scale(1);
+        box-shadow: 0 0 4px rgba(232, 62, 140, 0.4);
+    }
+    50% {
+        transform: scale(1.08);
+        box-shadow: 0 0 12px rgba(232, 62, 140, 0.7);
+    }
 }
 
 .config-item {
@@ -393,6 +431,9 @@ class SkippingStonesGame {
         this.userName = null;
         this.levelStates = {}; // Store state for each level
         this.hasUnsavedChanges = false; // Track if there are unsaved changes
+        this.hintsEnabled = false;
+        this.currentHint = null;
+        this.hintRequestId = 0;
         this.init();
     }
     
@@ -656,11 +697,14 @@ class SkippingStonesGame {
         
         // Check if current level is completed and show/hide share button accordingly
         this.checkGameStatus();
-        
+
+        // Update hint if enabled
+        if (this.hintsEnabled) this.fetchHint();
+
         // Update user stats
         this.updateUserStats();
     }
-    
+
     async loadConfiguration(configKey, preserveHistory = false) {
         console.log('Loading configuration:', configKey, 'preserveHistory:', preserveHistory);
         
@@ -704,11 +748,14 @@ class SkippingStonesGame {
         // Save level state
         console.log('Saving level state for current level after config load...');
         this.saveLevelState();
-        
+
+        // Update hint if enabled
+        if (this.hintsEnabled) this.fetchHint();
+
         // Update user stats
         this.updateUserStats();
     }
-    
+
     resetBoard() {
         for (let i = 0; i < 9; i++) {
             for (let j = 0; j < 9; j++) {
@@ -725,6 +772,7 @@ class SkippingStonesGame {
         document.getElementById('shareBtn').onclick = () => this.showShareModal();
         document.getElementById('downloadShareBtn').onclick = () => this.downloadShareImage();
         document.getElementById('nativeShareBtn').onclick = () => this.nativeShare();
+        document.getElementById('hintBtn').onclick = () => this.toggleHints();
     }
     
     renderBoard() {
@@ -763,14 +811,23 @@ class SkippingStonesGame {
                     cell.textContent = '●';
                 }
                 
+                const isHintSelected = this.currentHint && this.selectedMarble &&
+                    this.selectedMarble.row === this.currentHint.from_row &&
+                    this.selectedMarble.col === this.currentHint.from_col;
+
                 if (this.selectedMarble && this.selectedMarble.row === i && this.selectedMarble.col === j) {
-                    cell.classList.add('selected');
+                    cell.classList.add(isHintSelected ? 'hint-source' : 'selected');
                 }
-                
+
                 if (this.isValidMove(i, j) && !this.board[i][j]) {
                     cell.classList.add('valid-move');
                 }
-                
+
+                // Show hint destination when hint source is selected
+                if (isHintSelected && i === this.currentHint.to_row && j === this.currentHint.to_col) {
+                    cell.classList.add('hint-destination');
+                }
+
                 cell.onclick = () => this.handleCellClick(i, j);
                 boardElement.appendChild(cell);
             }
@@ -846,11 +903,14 @@ class SkippingStonesGame {
         // Save level state
         console.log('Saving level state for current level...');
         this.saveLevelState();
-        
+
+        // Update hint if enabled
+        if (this.hintsEnabled) this.fetchHint();
+
         // Update user stats
         this.updateUserStats();
     }
-    
+
     updateDisplay() {
         this.renderBoard();
         this.updateStats();
@@ -970,11 +1030,14 @@ class SkippingStonesGame {
         
         // Hide share button when game is reset
         this.hideShareButton();
-        
+
+        // Update hint if enabled
+        if (this.hintsEnabled) this.fetchHint();
+
         // Update user stats
         this.updateUserStats();
     }
-    
+
     async undoMove() {
         if (this.moveHistory.length === 0) return;
         
@@ -1004,11 +1067,14 @@ class SkippingStonesGame {
         // Save level state
         console.log('Saving level state for current level after undo...');
         this.saveLevelState();
-        
+
+        // Update hint if enabled
+        if (this.hintsEnabled) this.fetchHint();
+
         // Update user stats
         this.updateUserStats();
     }
-    
+
     clearHistory() {
         console.log('Clearing move history. Current moveHistory length:', this.moveHistory.length);
         this.moveHistory = [];
@@ -1556,6 +1622,64 @@ class SkippingStonesGame {
         }
     }
     
+    toggleHints() {
+        this.hintsEnabled = !this.hintsEnabled;
+        this.updateHintButtonState();
+        if (this.hintsEnabled) {
+            this.fetchHint();
+        } else {
+            this.clearHint();
+            this.renderBoard();
+        }
+    }
+
+    updateHintButtonState() {
+        const btn = document.getElementById('hintBtn');
+        if (this.hintsEnabled) {
+            btn.classList.remove('btn-outline-info');
+            btn.classList.add('btn-info');
+        } else {
+            btn.classList.remove('btn-info');
+            btn.classList.add('btn-outline-info');
+        }
+    }
+
+    async fetchHint() {
+        if (!this.hintsEnabled) return;
+        const requestId = ++this.hintRequestId;
+        try {
+            const response = await fetch('/api/skipping-stones/hint', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ board: this.board })
+            });
+            if (requestId !== this.hintRequestId) return; // stale response
+            if (response.ok) {
+                const data = await response.json();
+                this.currentHint = data.hint;
+                if (this.currentHint) {
+                    this.selectedMarble = { row: this.currentHint.from_row, col: this.currentHint.from_col };
+                }
+            } else {
+                this.currentHint = null;
+            }
+        } catch (error) {
+            if (requestId !== this.hintRequestId) return;
+            console.error('Error fetching hint:', error);
+            this.currentHint = null;
+        }
+        this.renderBoard();
+    }
+
+    clearHint() {
+        if (this.currentHint && this.selectedMarble &&
+            this.selectedMarble.row === this.currentHint.from_row &&
+            this.selectedMarble.col === this.currentHint.from_col) {
+            this.selectedMarble = null;
+        }
+        this.currentHint = null;
+    }
+
     getGameStatus() {
         const marblesLeft = this.countMarbles();
         if (marblesLeft === 1) {
