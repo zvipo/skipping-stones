@@ -195,7 +195,7 @@ def solve(board, time_limit=5.0, progress_callback=None):
                 top_move_index += 1
                 progress_callback(top_move_index, total_top_moves)
 
-        if not timed_out:
+        if not timed_out and len(failed) < 1_000_000:
             failed.add(state)
         return False
 

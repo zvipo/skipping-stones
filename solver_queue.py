@@ -75,8 +75,37 @@ class SolverQueue:
             else:
                 print(f"Solver queue enqueue error: {e}")
 
+    def reset_stale_items(self, max_age_seconds=3600):
+        """Reset 'solving' items older than max_age_seconds back to 'pending'."""
+        try:
+            response = self.table.scan(
+                FilterExpression='#s = :solving',
+                ExpressionAttributeNames={'#s': 'status'},
+                ExpressionAttributeValues={':solving': 'solving'},
+            )
+            items = response.get('Items', [])
+            cutoff = datetime.now()
+            reset_count = 0
+            for item in items:
+                updated_at = item.get('updated_at', '')
+                try:
+                    item_time = datetime.fromisoformat(updated_at)
+                except (ValueError, TypeError):
+                    item_time = datetime.min  # Treat unparseable as stale
+                age = (cutoff - item_time).total_seconds()
+                if age > max_age_seconds:
+                    self.release(int(item['board_state']))
+                    reset_count += 1
+            if reset_count > 0:
+                print(f"Solver queue: reset {reset_count} stale item(s) to pending.")
+            return reset_count
+        except Exception as e:
+            print(f"Solver queue reset_stale_items error: {e}")
+            return 0
+
     def get_all_claimable(self, include_solving=False):
         """Return all pending (and optionally solving) items, sorted by stone_count."""
+        self.reset_stale_items()
         try:
             if include_solving:
                 response = self.table.scan(
@@ -124,6 +153,7 @@ class SolverQueue:
 
         If include_solving is True, also considers items already being solved
         by another worker (useful for faster local CLI solving)."""
+        self.reset_stale_items()
         try:
             if include_solving:
                 response = self.table.scan(

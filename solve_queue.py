@@ -8,16 +8,44 @@ Usage:
     python3 solve_queue.py --all --workers 4  # solve all with 4 parallel workers
     python3 solve_queue.py --stats            # show queue statistics
     python3 solve_queue.py --cleanup          # remove solved/failed items from queue
+    python3 solve_queue.py --reset-stuck      # reset all 'solving' items to 'pending'
 """
 
 import argparse
 import os
+import signal
 import sys
 import time
 from multiprocessing import Process, cpu_count
 
 # Force unbuffered stdout so child process output appears immediately
 sys.stdout.reconfigure(line_buffering=True)
+
+# Max time (seconds) to spend solving a single board state
+MAX_SOLVE_TIME = 1800  # 30 minutes
+
+# Track actively-solving board_bits for signal handler cleanup
+_active_items = []
+
+
+def _signal_handler(signum, frame):
+    """Release any claimed items back to pending before exit."""
+    sig_name = signal.Signals(signum).name
+    print(f"\n[pid {os.getpid()}] Received {sig_name}, releasing {len(_active_items)} active item(s)...", flush=True)
+    if _active_items:
+        from solver_queue import solver_queue
+        for bits in list(_active_items):
+            try:
+                solver_queue.release(bits)
+                print(f"  Released {bits}", flush=True)
+            except Exception as e:
+                print(f"  Failed to release {bits}: {e}", flush=True)
+    sys.exit(1)
+
+
+# Register signal handlers in the main module scope
+signal.signal(signal.SIGTERM, _signal_handler)
+signal.signal(signal.SIGINT, _signal_handler)
 
 
 def solve_item(item):
@@ -30,9 +58,11 @@ def solve_item(item):
     sc = int(item['stone_count'])
     board = _bits_to_board(bits)
 
+    _active_items.append(bits)
+
     print(f"[pid {os.getpid()}] Solving state {bits} ({sc} stones)...", flush=True)
     start = time.monotonic()
-    solution = solve(board, time_limit=None)
+    solution = solve(board, time_limit=MAX_SOLVE_TIME)
     elapsed = time.monotonic() - start
 
     if solution is not None and len(solution) > 0:
@@ -42,7 +72,12 @@ def solve_item(item):
     else:
         solver_cache.put_no_solution(bits, sc)
         solver_queue.mark_failed(bits)
-        print(f"[pid {os.getpid()}] No solution for {bits} ({elapsed:.1f}s). Negative-cached.", flush=True)
+        if elapsed >= MAX_SOLVE_TIME:
+            print(f"[pid {os.getpid()}] Timed out on {bits} after {elapsed:.1f}s. Negative-cached.", flush=True)
+        else:
+            print(f"[pid {os.getpid()}] No solution for {bits} ({elapsed:.1f}s). Negative-cached.", flush=True)
+
+    _active_items.remove(bits)
 
 
 def solve_one():
@@ -105,6 +140,29 @@ def show_stats():
     print(f"  {'total':>10}: {stats.get('total', 0)}")
 
 
+def reset_stuck():
+    """Delete all stuck 'solving' items from the queue."""
+    from solver_queue import solver_queue
+
+    response = solver_queue.table.scan(
+        FilterExpression='#s = :solving',
+        ExpressionAttributeNames={'#s': 'status'},
+        ExpressionAttributeValues={':solving': 'solving'},
+    )
+    items = response.get('Items', [])
+    if not items:
+        print("No stuck items found.", flush=True)
+        return
+
+    for item in items:
+        bits = int(item['board_state'])
+        sc = item.get('stone_count', '?')
+        solver_queue.table.delete_item(Key={'board_state': item['board_state']})
+        print(f"  Deleted {bits} ({sc} stones)", flush=True)
+
+    print(f"\nDeleted {len(items)} stuck item(s).", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Solve queued board states.")
     parser.add_argument('--all', action='store_true', help='Solve all pending items')
@@ -112,6 +170,7 @@ def main():
                         help=f'Number of parallel workers (default: 1, max: {cpu_count()})')
     parser.add_argument('--stats', action='store_true', help='Show queue statistics')
     parser.add_argument('--cleanup', action='store_true', help='Remove solved/failed items from queue')
+    parser.add_argument('--reset-stuck', action='store_true', help='Reset all solving items to pending')
     args = parser.parse_args()
 
     # Ensure tables exist (in main process)
@@ -122,7 +181,9 @@ def main():
     solver_queue.create_table_if_not_exists()
     print("Ready.\n", flush=True)
 
-    if args.cleanup:
+    if args.reset_stuck:
+        reset_stuck()
+    elif args.cleanup:
         count = solver_queue.cleanup_completed()
         print(f"Removed {count} solved/failed item(s) from queue.", flush=True)
     elif args.stats:

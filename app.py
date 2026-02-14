@@ -1008,7 +1008,7 @@ def background_solver_worker():
             print(f"[background-solver] Solving queued state: {bits} ({sc} stones)")
 
             start = time.monotonic()
-            solution = solve(board, time_limit=None)
+            solution = solve(board, time_limit=1800)
             elapsed = time.monotonic() - start
 
             if solution is not None and len(solution) > 0:
