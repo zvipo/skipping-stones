@@ -34,50 +34,62 @@ def _signal_handler(signum, frame):
     print(f"\n[pid {os.getpid()}] Received {sig_name}, releasing {len(_active_items)} active item(s)...", flush=True)
     if _active_items:
         from solver_queue import solver_queue
-        for bits in list(_active_items):
+        for bits, shape_id in list(_active_items):
             try:
-                solver_queue.release(bits)
-                print(f"  Released {bits}", flush=True)
+                solver_queue.release(bits, shape_id)
+                print(f"  Released {bits} (shape={shape_id})", flush=True)
             except Exception as e:
                 print(f"  Failed to release {bits}: {e}", flush=True)
     sys.exit(1)
 
 
-# Register signal handlers in the main module scope
-signal.signal(signal.SIGTERM, _signal_handler)
-signal.signal(signal.SIGINT, _signal_handler)
+def _register_signal_handlers():
+    """Register signal handlers for the current process."""
+    signal.signal(signal.SIGTERM, _signal_handler)
+    signal.signal(signal.SIGINT, _signal_handler)
+
+
+# Register signal handlers in the main process
+_register_signal_handlers()
 
 
 def solve_item(item):
     """Solve a single queue item. Runs in its own process."""
+    # Re-register signal handlers in child process so _active_items
+    # (which is a per-process copy after fork) gets cleaned up on signal.
+    _register_signal_handlers()
+
     from solver import solve, _bits_to_board
     from solver_cache import solver_cache
     from solver_queue import solver_queue
 
-    bits = int(item['board_state'])
+    shape_id = item.get('shape_id', 'wiegleb')
+    # Parse board_bits from key (may be "shape:bits" or just "bits")
+    raw_key = item['board_state']
+    bits = int(raw_key.split(':')[-1]) if ':' in raw_key else int(raw_key)
     sc = int(item['stone_count'])
-    board = _bits_to_board(bits)
+    board = _bits_to_board(bits, shape_id)
 
-    _active_items.append(bits)
+    _active_items.append((bits, shape_id))
 
-    print(f"[pid {os.getpid()}] Solving state {bits} ({sc} stones)...", flush=True)
+    print(f"[pid {os.getpid()}] Solving state {bits} ({sc} stones, shape={shape_id})...", flush=True)
     start = time.monotonic()
-    solution = solve(board, time_limit=MAX_SOLVE_TIME)
+    solution = solve(board, time_limit=MAX_SOLVE_TIME, shape_id=shape_id)
     elapsed = time.monotonic() - start
 
     if solution is not None and len(solution) > 0:
-        solver_cache.cache_solution_path(bits, solution, sc)
-        solver_queue.mark_solved(bits)
+        solver_cache.cache_solution_path(bits, solution, sc, shape_id)
+        solver_queue.mark_solved(bits, shape_id)
         print(f"[pid {os.getpid()}] Solved {bits} in {elapsed:.1f}s — {len(solution)} moves cached.", flush=True)
     else:
-        solver_cache.put_no_solution(bits, sc)
-        solver_queue.mark_failed(bits)
+        solver_cache.put_no_solution(bits, sc, shape_id)
+        solver_queue.mark_failed(bits, shape_id)
         if elapsed >= MAX_SOLVE_TIME:
             print(f"[pid {os.getpid()}] Timed out on {bits} after {elapsed:.1f}s. Negative-cached.", flush=True)
         else:
             print(f"[pid {os.getpid()}] No solution for {bits} ({elapsed:.1f}s). Negative-cached.", flush=True)
 
-    _active_items.remove(bits)
+    _active_items.remove((bits, shape_id))
 
 
 def solve_one():
@@ -155,10 +167,11 @@ def reset_stuck():
         return
 
     for item in items:
-        bits = int(item['board_state'])
+        raw_key = item['board_state']
         sc = item.get('stone_count', '?')
-        solver_queue.table.delete_item(Key={'board_state': item['board_state']})
-        print(f"  Deleted {bits} ({sc} stones)", flush=True)
+        shape_id = item.get('shape_id', 'wiegleb')
+        solver_queue.table.delete_item(Key={'board_state': raw_key})
+        print(f"  Deleted {raw_key} ({sc} stones, shape={shape_id})", flush=True)
 
     print(f"\nDeleted {len(items)} stuck item(s).", flush=True)
 

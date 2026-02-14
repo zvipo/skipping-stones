@@ -30,19 +30,19 @@
                             <button id="undoBtn" class="btn btn-secondary">
                                 <i class="fas fa-undo me-2"></i>Undo
                             </button>
-                            <button id="hintBtn" class="btn btn-outline-info">
+                            <button id="hintBtn" class="btn btn-outline-info" style="display:none">
                                 <i class="fas fa-lightbulb me-2"></i>Hint
                             </button>
                         </div>
                     </div>
-                    
+
                     <div class="game-board-container">
                         <div class="level-indicator">
                             <span class="level-badge">Level: <span id="currentLevel">1</span></span>
                         </div>
                         <div id="gameBoard" class="game-board"></div>
                     </div>
-                    
+
                     <div class="row mt-3">
                         <div class="col-md-6">
                             <div class="card bg-light">
@@ -87,8 +87,22 @@
                 </div>
             </div>
         </div>
-        
+
         <div class="col-md-4">
+            <!-- Board Shape Selector -->
+            <div class="card mb-3">
+                <div class="card-header bg-dark text-white">
+                    <h5 class="mb-0">
+                        <i class="fas fa-shapes me-2"></i>Board Shape
+                    </h5>
+                </div>
+                <div class="card-body p-2">
+                    <div id="shapeSelector" class="shape-selector d-flex flex-wrap gap-1">
+                        <!-- Shape buttons loaded dynamically -->
+                    </div>
+                </div>
+            </div>
+
             <div class="card">
                 <div class="card-header bg-success text-white">
                     <h5 class="mb-0">
@@ -101,7 +115,7 @@
                     </div>
                 </div>
             </div>
-            
+
             <div class="card mt-3">
                 <div class="card-header">
                     <h6 class="mb-0">
@@ -114,7 +128,7 @@
                     </div>
                 </div>
             </div>
-            
+
             <div class="card mt-3" id="userStatsCard" style="display: none;">
                 <div class="card-header bg-info text-white">
                     <h6 class="mb-0">
@@ -201,18 +215,17 @@
 
 .game-board {
     display: grid;
-    grid-template-columns: repeat(9, 1fr);
     gap: 2px;
     background: #ddd;
     padding: 10px;
     border-radius: 8px;
     max-width: 500px;
+    width: 100%;
     margin: 0 auto;
 }
 
 .cell {
-    width: 40px;
-    height: 40px;
+    aspect-ratio: 1;
     border: 1px solid #999;
     display: flex;
     align-items: center;
@@ -220,6 +233,7 @@
     cursor: pointer;
     transition: all 0.2s;
     background: #f8f9fa;
+    font-size: clamp(0.6em, 2.5vw, 1em);
 }
 
 .cell:hover {
@@ -285,6 +299,28 @@
     }
 }
 
+.shape-selector .shape-btn {
+    padding: 6px 14px;
+    border: 2px solid #dee2e6;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: #f8f9fa;
+    font-size: 0.85em;
+    font-weight: 500;
+}
+
+.shape-selector .shape-btn:hover {
+    border-color: #007bff;
+    background: #e7f1ff;
+}
+
+.shape-selector .shape-btn.active {
+    background: #343a40;
+    color: white;
+    border-color: #343a40;
+}
+
 .config-item {
     padding: 10px;
     margin: 5px 0;
@@ -333,12 +369,6 @@
 @media (max-width: 768px) {
     .game-board {
         max-width: 100%;
-    }
-    
-    .cell {
-        width: 30px;
-        height: 30px;
-        font-size: 0.8em;
     }
 }
 
@@ -420,23 +450,35 @@
 <script>
 class SkippingStonesGame {
     constructor() {
-        this.board = this.createBoard();
+        // Shape and config state
+        this.shapes = {};          // shape_id -> { name, rows, cols, validCells, center, levels }
+        this.shapeOrder = [];
+        this.currentShape = 'wiegleb';
+        this.validCellsSet = new Set();
+
+        this.board = [];
         this.selectedMarble = null;
         this.moveHistory = [];
         this.currentConfig = 'level1';
-        this.configurations = {};
+        this.configurations = {};  // current shape's levels
         this.completedLevels = [];
         this.isUserLoggedIn = false;
         this.userEmail = null;
         this.userName = null;
-        this.levelStates = {}; // Store state for each level
-        this.hasUnsavedChanges = false; // Track if there are unsaved changes
+        this.levelStates = {}; // Store state for each level (namespaced: "shape:level")
+        this.hasUnsavedChanges = false;
         this.hintsEnabled = false;
         this.currentHint = null;
         this.hintRequestId = 0;
         this.init();
     }
-    
+
+    // --- Namespaced key helpers ---
+    _stateKey(configKey, shapeId) {
+        shapeId = shapeId || this.currentShape;
+        return `${shapeId}:${configKey}`;
+    }
+
     // Validate that each level's move history is independent
     validateLevelStates() {
         console.log('Validating level states...');
@@ -444,53 +486,52 @@ class SkippingStonesGame {
             console.log(`Level ${levelKey}:`);
             console.log(`  - Board: ${levelState.board ? 'present' : 'missing'}`);
             console.log(`  - MoveHistory: ${levelState.moveHistory ? levelState.moveHistory.length : 0} moves`);
-            console.log(`  - MoveHistory details:`, levelState.moveHistory);
         }
     }
-    
+
     // Save current level state to session storage
     saveLevelState() {
+        const stateKey = this._stateKey(this.currentConfig);
         const levelState = {
             board: this.board,
             moveHistory: this.moveHistory
         };
-        this.levelStates[this.currentConfig] = levelState;
-        
-        // Add timestamp to session storage
+        this.levelStates[stateKey] = levelState;
+
         const sessionData = {
             levelStates: this.levelStates,
+            currentShape: this.currentShape,
             timestamp: Date.now(),
             userEmail: this.userEmail || 'anonymous'
         };
         sessionStorage.setItem('skippingStonesLevelStates', JSON.stringify(sessionData));
-        console.log('Saving level state for current level:', this.currentConfig, 'with', this.moveHistory.length, 'moves');
+        console.log('Saving level state for:', stateKey, 'with', this.moveHistory.length, 'moves');
     }
-    
+
     // Load level state from session storage
     loadLevelState(configKey) {
         const savedStates = sessionStorage.getItem('skippingStonesLevelStates');
         if (savedStates) {
             try {
                 const sessionData = JSON.parse(savedStates);
-                
-                // Check if session data is from a different user or too old
+
                 if (sessionData.userEmail && this.userEmail && sessionData.userEmail !== this.userEmail) {
                     console.log('Session data belongs to different user, clearing');
                     this.clearSessionStorage();
                     return false;
                 }
-                
-                // Check if session data is older than 24 hours
+
                 if (sessionData.timestamp && (Date.now() - sessionData.timestamp) > 24 * 60 * 60 * 1000) {
                     console.log('Session data is too old, clearing');
                     this.clearSessionStorage();
                     return false;
                 }
-                
+
                 this.levelStates = sessionData.levelStates || {};
-                const levelState = this.levelStates[configKey];
+                const stateKey = this._stateKey(configKey);
+                const levelState = this.levelStates[stateKey];
                 if (levelState) {
-                    console.log('Loading level state for:', configKey, 'with', levelState.moveHistory ? levelState.moveHistory.length : 0, 'moves');
+                    console.log('Loading level state for:', stateKey, 'with', levelState.moveHistory ? levelState.moveHistory.length : 0, 'moves');
                     this.board = levelState.board;
                     this.moveHistory = levelState.moveHistory || [];
                     return true;
@@ -501,20 +542,22 @@ class SkippingStonesGame {
         }
         return false;
     }
-    
+
     // Clear level state (for reset functionality)
     clearLevelState(configKey) {
-        if (this.levelStates[configKey]) {
-            delete this.levelStates[configKey];
+        const stateKey = this._stateKey(configKey);
+        if (this.levelStates[stateKey]) {
+            delete this.levelStates[stateKey];
             const sessionData = {
                 levelStates: this.levelStates,
+                currentShape: this.currentShape,
                 timestamp: Date.now(),
                 userEmail: this.userEmail || 'anonymous'
             };
             sessionStorage.setItem('skippingStonesLevelStates', JSON.stringify(sessionData));
         }
     }
-    
+
     // Clear all session storage
     clearSessionStorage() {
         sessionStorage.removeItem('skippingStonesLevelStates');
@@ -525,34 +568,47 @@ class SkippingStonesGame {
         this.selectedMarble = null;
         console.log('Cleared session storage and game state');
     }
-    
+
     createBoard() {
+        const shape = this.shapes[this.currentShape];
+        const rows = shape ? shape.rows : 9;
+        const cols = shape ? shape.cols : 9;
         const board = [];
-        for (let i = 0; i < 9; i++) {
+        for (let i = 0; i < rows; i++) {
             board[i] = [];
-            for (let j = 0; j < 9; j++) {
-                board[i][j] = false; // false = no marble, true = marble
+            for (let j = 0; j < cols; j++) {
+                board[i][j] = false;
             }
         }
         return board;
     }
-    
+
+    _rebuildValidCellsSet() {
+        const shape = this.shapes[this.currentShape];
+        this.validCellsSet = new Set();
+        if (shape && shape.validCells) {
+            for (const [r, c] of shape.validCells) {
+                this.validCellsSet.add(`${r},${c}`);
+            }
+        }
+    }
+
+    _isValidCell(r, c) {
+        return this.validCellsSet.has(`${r},${c}`);
+    }
+
     async init() {
         await this.loadConfigurations();
         this.setupEventListeners();
         this.setupActivityTracking();
-        
-        // Check if user is logged in and load their state
+
         await this.checkUserLoginStatus();
-        
-        // If user is not logged in, clear any session storage that might belong to a logged-out user
+
         if (!this.isUserLoggedIn) {
-            // Check if there's session data that might belong to a logged-out user
             const savedStates = sessionStorage.getItem('skippingStonesLevelStates');
             if (savedStates) {
                 try {
                     const sessionData = JSON.parse(savedStates);
-                    // If session data has a user email but current user is not logged in, clear it
                     if (sessionData.userEmail && sessionData.userEmail !== 'anonymous') {
                         console.log('Detected session data from logged-out user, clearing');
                         this.clearSessionStorage();
@@ -562,28 +618,23 @@ class SkippingStonesGame {
                     this.clearSessionStorage();
                 }
             }
-            
-            // Force a fresh game state for non-authenticated users
+
             this.loadConfiguration(this.currentConfig, true);
             this.updateDisplay();
             this.updateMoveHistory();
         }
-        
+
         if (this.isUserLoggedIn) {
-            // For logged-in users, don't load from session storage - load from server
             await this.loadUserGameState();
         } else {
-            // For non-logged-in users, try to load from localStorage backup first
             const restoredFromBackup = this.loadGameStateFromLocalStorage();
-            
+
             if (!restoredFromBackup) {
-                // If no backup, load from session storage
                 const savedStates = sessionStorage.getItem('skippingStonesLevelStates');
                 if (savedStates) {
                     try {
                         const sessionData = JSON.parse(savedStates);
-                        
-                        // Check if session data is from a different user or too old
+
                         if (sessionData.userEmail && this.userEmail && sessionData.userEmail !== this.userEmail) {
                             console.log('Session data belongs to different user, clearing');
                             this.clearSessionStorage();
@@ -592,14 +643,21 @@ class SkippingStonesGame {
                             this.clearSessionStorage();
                         } else {
                             this.levelStates = sessionData.levelStates || {};
+                            // Restore shape from session
+                            if (sessionData.currentShape && this.shapes[sessionData.currentShape]) {
+                                this.currentShape = sessionData.currentShape;
+                                this._rebuildValidCellsSet();
+                                this.configurations = this.shapes[this.currentShape].levels;
+                                this.renderShapeSelector();
+                                this.renderConfigurations();
+                            }
                         }
                     } catch (error) {
                         console.error('Error loading level states:', error);
                         this.levelStates = {};
                     }
                 }
-                
-                // Try to load saved state for current level
+
                 const hasSavedState = this.loadLevelState(this.currentConfig);
                 if (hasSavedState) {
                     this.updateDisplay();
@@ -609,166 +667,196 @@ class SkippingStonesGame {
                 }
             }
         }
-        
+
         this.updateDisplay();
         this.highlightActiveConfiguration();
         this.updateUserStats();
         this.updateSaveButtonState();
     }
-    
+
     async loadConfigurations() {
         try {
             const response = await fetch('/api/skipping-stones/configs');
-            this.configurations = await response.json();
+            const data = await response.json();
+            this.shapes = data.shapes;
+            this.shapeOrder = data.shapeOrder;
+
+            // Set up initial shape
+            this._rebuildValidCellsSet();
+            this.configurations = this.shapes[this.currentShape].levels;
+            this.board = this.createBoard();
+
+            this.renderShapeSelector();
             this.renderConfigurations();
         } catch (error) {
             console.error('Failed to load configurations:', error);
         }
     }
-    
+
+    renderShapeSelector() {
+        const container = document.getElementById('shapeSelector');
+        container.innerHTML = '';
+
+        for (const shapeId of this.shapeOrder) {
+            const shape = this.shapes[shapeId];
+            const btn = document.createElement('button');
+            btn.className = 'shape-btn' + (shapeId === this.currentShape ? ' active' : '');
+            btn.textContent = shape.name;
+            btn.onclick = () => this.selectShape(shapeId);
+            container.appendChild(btn);
+        }
+    }
+
+    selectShape(shapeId) {
+        if (shapeId === this.currentShape) return;
+
+        // Save current state before switching
+        this.saveLevelState();
+
+        this.currentShape = shapeId;
+        this._rebuildValidCellsSet();
+        this.configurations = this.shapes[shapeId].levels;
+
+        // Update grid columns for new shape
+        const shape = this.shapes[shapeId];
+        const boardElement = document.getElementById('gameBoard');
+        boardElement.style.gridTemplateColumns = `repeat(${shape.cols}, 1fr)`;
+
+        this.renderShapeSelector();
+        this.renderConfigurations();
+
+        // Load first level of new shape
+        const firstLevel = Object.keys(this.configurations)[0];
+        this.currentConfig = firstLevel;
+
+        const hasSavedState = this.loadLevelState(firstLevel);
+        if (hasSavedState) {
+            this.updateDisplay();
+            this.updateMoveHistory();
+        } else {
+            this.loadConfiguration(firstLevel, false);
+        }
+
+        const levelNumber = firstLevel.replace('level', '');
+        document.getElementById('currentLevel').textContent = levelNumber;
+        this.highlightActiveConfiguration();
+        this.checkGameStatus();
+
+        if (this.hintsEnabled) {
+            this.cancelHintSolving();
+        }
+        this.updateUserStats();
+    }
+
     renderConfigurations() {
         const container = document.getElementById('configurations');
         container.innerHTML = '';
-        
+
         Object.entries(this.configurations).forEach(([key, config]) => {
             const div = document.createElement('div');
             div.className = 'config-item';
             if (key === this.currentConfig) {
                 div.classList.add('active');
             }
-            
-            // Add completed indicator
-            const isCompleted = this.completedLevels.includes(key);
+
+            const stateKey = this._stateKey(key);
+            const isCompleted = this.completedLevels.includes(stateKey);
             const completedIcon = isCompleted ? '<i class="fas fa-check-circle text-success me-2"></i>' : '';
             const completedClass = isCompleted ? 'completed' : '';
-            
+
             div.innerHTML = `
                 ${completedIcon}<strong>${config.name}</strong><br>
                 <small class="text-muted">${config.description}</small>
-                ${isCompleted ? '<br><small class="text-success">✓ Completed</small>' : ''}
+                ${isCompleted ? '<br><small class="text-success">&#10003; Completed</small>' : ''}
             `;
-            
+
             if (completedClass) {
                 div.classList.add(completedClass);
             }
-            
+
             div.onclick = () => this.selectConfiguration(key);
             container.appendChild(div);
         });
     }
-    
+
     selectConfiguration(configKey) {
         console.log('Selecting configuration:', configKey, 'from current:', this.currentConfig);
-        
-        // If we're already on this configuration, don't reset the game
+
         if (this.currentConfig === configKey) {
-            // Just update the active configuration highlight without resetting
             this.highlightActiveConfiguration();
             return;
         }
-        
-        // Save current level state before switching
+
         console.log('Saving current level state before switching');
         this.saveLevelState();
-        
-        // Switch to the new level
+
         this.currentConfig = configKey;
-        
-        // Try to load saved state for this level
+
         const hasSavedState = this.loadLevelState(configKey);
-        
+
         if (hasSavedState) {
-            // Use saved state
             console.log('Using saved state for', configKey);
             this.updateDisplay();
             this.updateMoveHistory();
         } else {
-            // Load fresh configuration and clear history
             console.log('Loading fresh configuration for', configKey);
-            this.loadConfiguration(configKey, false); // Clear history for fresh config
+            this.loadConfiguration(configKey, false);
         }
-        
-        // Update level indicator
+
         const levelNumber = configKey.replace('level', '');
         document.getElementById('currentLevel').textContent = levelNumber;
-        
-        // Update active configuration
+
         this.highlightActiveConfiguration();
-        
-        // Check if current level is completed and show/hide share button accordingly
         this.checkGameStatus();
 
-        // Turn off hints on level switch
         if (this.hintsEnabled) {
             this.cancelHintSolving();
         }
-
-        // Update user stats
         this.updateUserStats();
     }
 
     async loadConfiguration(configKey, preserveHistory = false) {
         console.log('Loading configuration:', configKey, 'preserveHistory:', preserveHistory);
-        
+
         this.currentConfig = configKey;
         this.resetBoard();
-        
+
         const config = this.configurations[configKey];
         if (config && config.marbles) {
             config.marbles.forEach(([row, col]) => {
                 this.board[row][col] = true;
             });
         }
-        
+
         this.updateDisplay();
-        
-        // Only clear history if not preserving it
+
         if (!preserveHistory) {
-            console.log('Clearing history because preserveHistory is false');
             this.clearHistory();
-        } else {
-            console.log('Preserving history because preserveHistory is true');
         }
-        
-        // Update level indicator
+
         const levelNumber = configKey.replace('level', '');
         document.getElementById('currentLevel').textContent = levelNumber;
-        
-        // Update active configuration
+
         this.highlightActiveConfiguration();
-        
-        // Check if current level is completed and show/hide share button accordingly
         this.checkGameStatus();
-        
-        // Save state if user is logged in
+
         if (this.isUserLoggedIn) {
-            console.log('User is logged in, saving all levels state after config load...');
-            // Save all levels state instead of just current level
             await this.saveGameAuto();
         }
-        
-        // Save level state
-        console.log('Saving level state for current level after config load...');
+
         this.saveLevelState();
 
-        // Turn off hints on config load
         if (this.hintsEnabled) {
             this.cancelHintSolving();
         }
-
-        // Update user stats
         this.updateUserStats();
     }
 
     resetBoard() {
-        for (let i = 0; i < 9; i++) {
-            for (let j = 0; j < 9; j++) {
-                this.board[i][j] = false;
-            }
-        }
+        this.board = this.createBoard();
         this.selectedMarble = null;
     }
-    
+
     setupEventListeners() {
         document.getElementById('saveBtn').onclick = () => this.saveGame();
         document.getElementById('resetBtn').onclick = () => this.resetGame();
@@ -777,44 +865,40 @@ class SkippingStonesGame {
         document.getElementById('downloadShareBtn').onclick = () => this.downloadShareImage();
         document.getElementById('nativeShareBtn').onclick = () => this.nativeShare();
         document.getElementById('hintBtn').onclick = () => this.toggleHints();
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'h' && !e.ctrlKey && !e.metaKey && !e.altKey
+                && !e.target.closest('input, textarea, select')) {
+                this.toggleHints();
+            }
+        });
     }
-    
+
     renderBoard() {
         const boardElement = document.getElementById('gameBoard');
         boardElement.innerHTML = '';
-        
-        for (let i = 0; i < 9; i++) {
-            for (let j = 0; j < 9; j++) {
+
+        const shape = this.shapes[this.currentShape];
+        const rows = shape.rows;
+        const cols = shape.cols;
+        boardElement.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+
+        for (let i = 0; i < rows; i++) {
+            for (let j = 0; j < cols; j++) {
                 const cell = document.createElement('div');
                 cell.className = 'cell';
                 cell.dataset.row = i;
                 cell.dataset.col = j;
 
-                // If the cell is in the top left 3x3 square, make it invalid
-                if (i < 3 && j < 3) {
+                if (!this._isValidCell(i, j)) {
                     cell.classList.add('invalid');
                 }
 
-                // If the cell is in the bottom right 3x3 square, make it invalid
-                if (i > 5 && j > 5) {   
-                    cell.classList.add('invalid');
-                }
-
-                // If the cell is in the top right 3x3 square, make it invalid
-                if (i < 3 && j > 5) {
-                    cell.classList.add('invalid');  
-                }
-                // If the cell is in the bottom left 3x3 square, make it invalid
-                if (i > 5 && j < 3) {
-                    cell.classList.add('invalid');
-                }
-
-                
-                if (this.board[i][j]) {
+                if (this.board[i] && this.board[i][j]) {
                     cell.classList.add('marble');
-                    cell.textContent = '●';
+                    cell.textContent = '\u25CF';
                 }
-                
+
                 const isHintSelected = this.currentHint && this.selectedMarble &&
                     this.selectedMarble.row === this.currentHint.from_row &&
                     this.selectedMarble.col === this.currentHint.from_col;
@@ -823,11 +907,10 @@ class SkippingStonesGame {
                     cell.classList.add(isHintSelected ? 'hint-source' : 'selected');
                 }
 
-                if (this.isValidMove(i, j) && !this.board[i][j]) {
+                if (this.isValidMove(i, j) && !(this.board[i] && this.board[i][j])) {
                     cell.classList.add('valid-move');
                 }
 
-                // Show hint destination when hint source is selected
                 if (isHintSelected && i === this.currentHint.to_row && j === this.currentHint.to_col) {
                     cell.classList.add('hint-destination');
                 }
@@ -837,83 +920,67 @@ class SkippingStonesGame {
             }
         }
     }
-    
+
     handleCellClick(row, col) {
-        if (this.board[row][col]) {
-            // Clicked on a marble - select it
+        if (this.board[row] && this.board[row][col]) {
             this.selectedMarble = { row, col };
         } else if (this.selectedMarble && this.isValidMove(row, col)) {
-            // Clicked on a valid destination - make the move
             this.makeMove(this.selectedMarble.row, this.selectedMarble.col, row, col);
-            this.selectedMarble = null; // Clear immediately for UI update
+            this.selectedMarble = null;
         }
-        
+
         this.updateDisplay();
     }
-    
+
     isValidMove(toRow, toCol) {
         if (!this.selectedMarble) return false;
-        
+        if (!this._isValidCell(toRow, toCol)) return false;
+
         const { row: fromRow, col: fromCol } = this.selectedMarble;
-        
-        // Check if it's a valid jump (2 spaces in any direction)
+
         const rowDiff = Math.abs(toRow - fromRow);
         const colDiff = Math.abs(toCol - fromCol);
-        
+
         if ((rowDiff === 2 && colDiff === 0) || (rowDiff === 0 && colDiff === 2)) {
-            // Check if there's a marble to jump over
             const jumpRow = fromRow + (toRow - fromRow) / 2;
             const jumpCol = fromCol + (toCol - fromCol) / 2;
-            
-            return this.board[jumpRow][jumpCol];
+
+            return this.board[jumpRow] && this.board[jumpRow][jumpCol];
         }
-        
+
         return false;
     }
-    
+
     async makeMove(fromRow, fromCol, toRow, toCol) {
-        // Remove the jumped marble
         const jumpRow = fromRow + (toRow - fromRow) / 2;
         const jumpCol = fromCol + (toCol - fromCol) / 2;
-        
+
         this.board[fromRow][fromCol] = false;
         this.board[jumpRow][jumpCol] = false;
         this.board[toRow][toCol] = true;
-        
-        // Record the move
+
         const move = {
             from: { row: fromRow, col: fromCol },
             to: { row: toRow, col: toCol },
             jumped: { row: jumpRow, col: jumpCol }
         };
         this.moveHistory.push(move);
-        
-        console.log('Made move:', move, 'Total moves:', this.moveHistory.length);
-        
+
         this.updateMoveHistory();
         this.checkGameStatus();
-        
-        // Mark as having unsaved changes
+
         this.hasUnsavedChanges = true;
         this.updateSaveButtonState();
-        
-        // Save state if user is logged in
+
         if (this.isUserLoggedIn) {
-            console.log('User is logged in, saving all levels state...');
-            // Save all levels state instead of just current level
-            await this.saveGameAuto(); // Use auto-save version that doesn't mark as saved
+            await this.saveGameAuto();
         }
-        
-        // Save level state
-        console.log('Saving level state for current level...');
+
         this.saveLevelState();
 
-        // Turn off hints after each move
         if (this.hintsEnabled) {
             this.cancelHintSolving();
         }
-
-        // Update user stats
         this.updateUserStats();
     }
 
@@ -921,48 +988,53 @@ class SkippingStonesGame {
         this.renderBoard();
         this.updateStats();
     }
-    
+
     updateStats() {
         const marblesLeft = this.countMarbles();
         const movesCount = this.moveHistory.length;
-        
+
         document.getElementById('marblesLeft').textContent = marblesLeft;
         document.getElementById('movesCount').textContent = movesCount;
-        
+
         let status = 'Playing';
         if (marblesLeft === 1) {
             status = 'Won!';
         } else if (marblesLeft > 1 && !this.hasValidMoves()) {
             status = 'Stuck';
         }
-        
+
         document.getElementById('gameStatus').textContent = status;
     }
-    
+
     countMarbles() {
         let count = 0;
-        for (let i = 0; i < 9; i++) {
-            for (let j = 0; j < 9; j++) {
-                if (this.board[i][j]) count++;
+        const shape = this.shapes[this.currentShape];
+        const rows = shape ? shape.rows : 9;
+        const cols = shape ? shape.cols : 9;
+        for (let i = 0; i < rows; i++) {
+            for (let j = 0; j < cols; j++) {
+                if (this.board[i] && this.board[i][j]) count++;
             }
         }
         return count;
     }
-    
+
     hasValidMoves() {
-        for (let i = 0; i < 9; i++) {
-            for (let j = 0; j < 9; j++) {
-                if (this.board[i][j]) {
-                    // Check if this marble can make any valid moves
+        const shape = this.shapes[this.currentShape];
+        const rows = shape ? shape.rows : 9;
+        const cols = shape ? shape.cols : 9;
+        for (let i = 0; i < rows; i++) {
+            for (let j = 0; j < cols; j++) {
+                if (this.board[i] && this.board[i][j]) {
                     const directions = [[-2, 0], [2, 0], [0, -2], [0, 2]];
                     for (const [dRow, dCol] of directions) {
                         const toRow = i + dRow;
                         const toCol = j + dCol;
-                        if (toRow >= 0 && toRow < 9 && toCol >= 0 && toCol < 9) {
-                            if (!this.board[toRow][toCol]) {
+                        if (toRow >= 0 && toRow < rows && toCol >= 0 && toCol < cols && this._isValidCell(toRow, toCol)) {
+                            if (!(this.board[toRow] && this.board[toRow][toCol])) {
                                 const jumpRow = i + dRow / 2;
                                 const jumpCol = j + dCol / 2;
-                                if (this.board[jumpRow][jumpCol]) {
+                                if (this.board[jumpRow] && this.board[jumpRow][jumpCol]) {
                                     return true;
                                 }
                             }
@@ -973,143 +1045,112 @@ class SkippingStonesGame {
         }
         return false;
     }
-    
+
     checkGameStatus() {
         const marblesLeft = this.countMarbles();
+        const stateKey = this._stateKey(this.currentConfig);
         if (marblesLeft === 1) {
-            // Game won - mark level as completed
             if (this.isUserLoggedIn) {
                 this.markLevelCompleted(this.currentConfig);
             }
-            // Show share button for completed level
             this.showShareButton();
         } else if (marblesLeft > 1 && !this.hasValidMoves()) {
-            // Game stuck - status will be updated in updateStats
             this.hideShareButton();
         } else {
-            // Check if this level was previously completed
-            if (this.completedLevels.includes(this.currentConfig)) {
+            if (this.completedLevels.includes(stateKey)) {
                 this.showShareButton();
             } else {
                 this.hideShareButton();
             }
         }
     }
-    
+
     updateMoveHistory() {
         const container = document.getElementById('moveHistory');
         container.innerHTML = '';
-        
-        console.log('Updating move history display with', this.moveHistory.length, 'moves');
-        
+
         if (this.moveHistory.length === 0) {
             container.innerHTML = '<p class="text-muted text-center">No moves yet</p>';
             return;
         }
-        
+
         this.moveHistory.forEach((move, index) => {
             const div = document.createElement('div');
             div.className = 'move-item';
-            div.textContent = `Move ${index + 1}: (${move.from.row},${move.from.col}) → (${move.to.row},${move.to.col})`;
+            div.textContent = `Move ${index + 1}: (${move.from.row},${move.from.col}) \u2192 (${move.to.row},${move.to.col})`;
             container.appendChild(div);
         });
-        
+
         container.scrollTop = container.scrollHeight;
     }
-    
+
     resetGame() {
-        // Remove current level from completed levels if it was completed
-        if (this.completedLevels.includes(this.currentConfig)) {
-            this.completedLevels = this.completedLevels.filter(level => level !== this.currentConfig);
-            console.log(`Removed ${this.currentConfig} from completed levels`);
+        const stateKey = this._stateKey(this.currentConfig);
+        if (this.completedLevels.includes(stateKey)) {
+            this.completedLevels = this.completedLevels.filter(level => level !== stateKey);
         }
-        
-        // Clear the level state for current level
+
         this.clearLevelState(this.currentConfig);
-        
-        // Reset the board and move history to initial state
         this.resetBoard();
         this.clearHistory();
-        
-        // Load fresh configuration without preserving history
         this.loadConfiguration(this.currentConfig, false);
-        
-        // Hide share button when game is reset
         this.hideShareButton();
 
-        // Turn off hints on reset
         if (this.hintsEnabled) {
             this.cancelHintSolving();
         }
-
-        // Update user stats
         this.updateUserStats();
     }
 
     async undoMove() {
         if (this.moveHistory.length === 0) return;
-        
+
         const lastMove = this.moveHistory.pop();
-        console.log('Undoing move:', lastMove, 'Remaining moves:', this.moveHistory.length);
-        
-        // Restore the board state
+
         this.board[lastMove.from.row][lastMove.from.col] = true;
         this.board[lastMove.jumped.row][lastMove.jumped.col] = true;
         this.board[lastMove.to.row][lastMove.to.col] = false;
-        
+
         this.selectedMarble = null;
         this.updateDisplay();
         this.updateMoveHistory();
-        
-        // Mark as having unsaved changes
+
         this.hasUnsavedChanges = true;
         this.updateSaveButtonState();
-        
-        // Save state if user is logged in
+
         if (this.isUserLoggedIn) {
-            console.log('User is logged in, saving all levels state after undo...');
-            // Save all levels state instead of just current level
             await this.saveGameAuto();
         }
-        
-        // Save level state
-        console.log('Saving level state for current level after undo...');
+
         this.saveLevelState();
 
-        // Turn off hints on undo
         if (this.hintsEnabled) {
             this.cancelHintSolving();
         }
-
-        // Update user stats
         this.updateUserStats();
     }
 
     clearHistory() {
-        console.log('Clearing move history. Current moveHistory length:', this.moveHistory.length);
         this.moveHistory = [];
         this.updateMoveHistory();
     }
-    
+
     highlightActiveConfiguration() {
-        // Remove active class from all config items
         document.querySelectorAll('.config-item').forEach(item => {
             item.classList.remove('active');
         });
-        
-        // Add active class to the current configuration
+
         const configItems = document.querySelectorAll('.config-item');
+        const keys = Object.keys(this.configurations);
         configItems.forEach((item, index) => {
-            const configKey = Object.keys(this.configurations)[index];
-            if (configKey === this.currentConfig) {
+            if (keys[index] === this.currentConfig) {
                 item.classList.add('active');
             }
         });
     }
-    
+
     async checkUserLoginStatus() {
         try {
-            // Check if user is logged in using the auth status endpoint
             const response = await fetch('/api/auth/status');
             if (response.ok) {
                 const authData = await response.json();
@@ -1117,27 +1158,15 @@ class SkippingStonesGame {
                 this.isUserLoggedIn = authData.authenticated;
                 this.userEmail = authData.email;
                 this.userName = authData.name;
-                
-                console.log('User login status:', { 
-                    authenticated: this.isUserLoggedIn, 
-                    email: this.userEmail, 
-                    name: this.userName 
-                });
-                
-                // If user was logged in but now isn't, show a notification
+
                 if (wasLoggedIn && !this.isUserLoggedIn) {
-                    console.log('User session expired');
                     this.showSessionExpiredNotification();
-                    // Clear session storage since user is no longer logged in
                     this.clearSessionStorage();
-                    
-                    // Reset game to initial state for non-authenticated user
                     this.loadConfiguration(this.currentConfig, true);
                     this.updateDisplay();
                     this.updateMoveHistory();
                 }
-                
-                // If user is logged in, refresh their session
+
                 if (this.isUserLoggedIn) {
                     this.refreshSession();
                 }
@@ -1154,14 +1183,12 @@ class SkippingStonesGame {
         }
         this.updateSaveButtonState();
     }
-    
+
     async refreshSession() {
         try {
             const response = await fetch('/api/auth/refresh-session', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                }
+                headers: { 'Content-Type': 'application/json' }
             });
             if (response.ok) {
                 console.log('Session refreshed successfully');
@@ -1170,34 +1197,27 @@ class SkippingStonesGame {
             console.error('Error refreshing session:', error);
         }
     }
-    
-    // Track user activity to refresh session only when active
+
     setupActivityTracking() {
         let activityTimeout;
         const resetActivity = () => {
             clearTimeout(activityTimeout);
             activityTimeout = setTimeout(() => {
-                // User has been inactive for 5 minutes, don't refresh session
                 console.log('User inactive, skipping session refresh');
             }, 5 * 60 * 1000);
         };
-        
-        // Reset activity on user interaction
+
         ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'].forEach(event => {
             document.addEventListener(event, resetActivity, true);
         });
-        
-        resetActivity(); // Initialize
+
+        resetActivity();
     }
-    
+
     showSessionExpiredNotification() {
-        // Save current game state to localStorage as backup
         this.saveGameStateToLocalStorage();
-        
-        // Clear session storage since user is no longer logged in
         this.clearSessionStorage();
-        
-        // Create a notification element
+
         const notification = document.createElement('div');
         notification.className = 'alert alert-warning alert-dismissible fade show position-fixed';
         notification.style.cssText = 'top: 20px; right: 20px; z-index: 9999; max-width: 400px;';
@@ -1206,23 +1226,23 @@ class SkippingStonesGame {
             Your session has expired. Your progress has been saved locally. Please log in again to save to the server.
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         `;
-        
+
         document.body.appendChild(notification);
-        
-        // Auto-remove after 10 seconds
+
         setTimeout(() => {
             if (notification.parentNode) {
                 notification.remove();
             }
         }, 10000);
     }
-    
+
     saveGameStateToLocalStorage() {
         try {
             const gameState = {
                 levelStates: this.levelStates,
                 completedLevels: this.completedLevels,
                 currentConfig: this.currentConfig,
+                currentShape: this.currentShape,
                 board: this.board,
                 moveHistory: this.moveHistory,
                 timestamp: Date.now()
@@ -1233,28 +1253,35 @@ class SkippingStonesGame {
             console.error('Error saving to localStorage:', error);
         }
     }
-    
+
     loadGameStateFromLocalStorage() {
         try {
             const backup = localStorage.getItem('skippingStones_backup');
             if (backup) {
                 const gameState = JSON.parse(backup);
                 const backupAge = Date.now() - gameState.timestamp;
-                
-                // Only restore if backup is less than 24 hours old
+
                 if (backupAge < 24 * 60 * 60 * 1000) {
                     this.levelStates = gameState.levelStates || {};
                     this.completedLevels = gameState.completedLevels || [];
                     this.currentConfig = gameState.currentConfig || 'level1';
                     this.board = gameState.board || [];
                     this.moveHistory = gameState.moveHistory || [];
-                    
+
+                    // Restore shape
+                    if (gameState.currentShape && this.shapes[gameState.currentShape]) {
+                        this.currentShape = gameState.currentShape;
+                        this._rebuildValidCellsSet();
+                        this.configurations = this.shapes[this.currentShape].levels;
+                        this.renderShapeSelector();
+                        this.renderConfigurations();
+                    }
+
                     console.log('Restored game state from localStorage backup');
                     this.updateDisplay();
                     this.updateMoveHistory();
                     return true;
                 } else {
-                    // Remove old backup
                     localStorage.removeItem('skippingStones_backup');
                 }
             }
@@ -1263,112 +1290,90 @@ class SkippingStonesGame {
         }
         return false;
     }
-    
+
     async loadUserGameState() {
         try {
             console.log('Loading user game state...');
-            
-            // Try to load all levels state first
+
             const allLevelsResponse = await fetch('/api/game-state/load-all-levels');
-            console.log('All levels response status:', allLevelsResponse.status);
-            
+
             if (allLevelsResponse.ok) {
                 const allLevelsState = await allLevelsResponse.json();
-                console.log('All levels state received:', allLevelsState);
-                console.log('Raw level_states:', allLevelsState.level_states);
-                console.log('Type of level_states:', typeof allLevelsState.level_states);
-                
-                // Load all levels state from server
+
                 const serverLevelStates = allLevelsState.level_states || {};
                 this.completedLevels = allLevelsState.completed_levels || [];
-                this.currentConfig = allLevelsState.current_level || 'level1';
-                
-                // For logged-in users, use server data directly (don't merge with session storage)
-                this.levelStates = serverLevelStates;
-                
-                console.log('Server levelStates:', serverLevelStates);
-                console.log('Final levelStates:', this.levelStates);
-                console.log('Loaded completedLevels:', this.completedLevels);
-                console.log('Current config:', this.currentConfig);
-                console.log('Keys in levelStates:', Object.keys(this.levelStates));
-                
-                // Validate level states after loading from server
+
+                // Migrate old keys: "level1" -> "wiegleb:level1"
+                const migratedStates = {};
+                for (const [key, val] of Object.entries(serverLevelStates)) {
+                    if (!key.includes(':')) {
+                        migratedStates[`wiegleb:${key}`] = val;
+                    } else {
+                        migratedStates[key] = val;
+                    }
+                }
+                this.levelStates = migratedStates;
+
+                // Migrate old completed levels
+                this.completedLevels = this.completedLevels.map(l =>
+                    l.includes(':') ? l : `wiegleb:${l}`
+                );
+
+                // Determine current shape and config from saved state
+                const savedLevel = allLevelsState.current_level || 'level1';
+                const savedShape = allLevelsState.current_shape || 'wiegleb';
+                if (this.shapes[savedShape]) {
+                    this.currentShape = savedShape;
+                    this._rebuildValidCellsSet();
+                    this.configurations = this.shapes[this.currentShape].levels;
+                    this.renderShapeSelector();
+                    this.renderConfigurations();
+                }
+                this.currentConfig = savedLevel;
+
                 this.validateLevelStates();
-                
-                // Load current level state
-                const currentLevelState = this.levelStates[this.currentConfig];
-                console.log('Current level state:', currentLevelState);
-                console.log('Looking for level:', this.currentConfig);
-                console.log('Available levels in levelStates:', Object.keys(this.levelStates));
-                
+
+                const stateKey = this._stateKey(this.currentConfig);
+                const currentLevelState = this.levelStates[stateKey];
+
                 if (currentLevelState) {
-                    console.log('Loading board state:', currentLevelState.board);
-                    console.log('Loading move history:', currentLevelState.moveHistory);
-                    console.log('Move history length:', currentLevelState.moveHistory ? currentLevelState.moveHistory.length : 0);
-                    console.log('Move history type:', typeof currentLevelState.moveHistory);
-                    console.log('Move history is array:', Array.isArray(currentLevelState.moveHistory));
-                    
-                    // Ensure we're loading the correct move history for this level
-                    const levelMoveHistory = currentLevelState.moveHistory || [];
-                    console.log('Level-specific move history for', this.currentConfig, ':', levelMoveHistory);
-                    
                     this.board = currentLevelState.board;
-                    this.moveHistory = levelMoveHistory;
-                    console.log('Set moveHistory to:', this.moveHistory);
-                    console.log('Final moveHistory length:', this.moveHistory.length);
+                    this.moveHistory = currentLevelState.moveHistory || [];
                     this.updateDisplay();
                     this.updateMoveHistory();
-                    console.log('Loaded saved state for current level with', this.moveHistory.length, 'moves');
                 } else {
-                    // Load fresh configuration for current level
-                    console.log('No saved state for current level, loading fresh config');
                     this.loadConfiguration(this.currentConfig, true);
                 }
-                
-                // Update level indicator
+
                 const levelNumber = this.currentConfig.replace('level', '');
                 document.getElementById('currentLevel').textContent = levelNumber;
-                
-                // Update active configuration
                 this.highlightActiveConfiguration();
-                
-                // Check if current level is completed and show share button
                 this.checkGameStatus();
-                
-                console.log('Successfully loaded all levels state');
+
             } else {
                 console.log('All levels load failed, trying fallback...');
-                // Fallback to old single level loading
                 const response = await fetch('/api/game-state/load');
                 if (response.ok) {
                     const gameState = await response.json();
-                    
-                    // Load the saved state
+
                     this.currentConfig = gameState.current_level || 'level1';
-                    this.completedLevels = gameState.completed_levels || [];
-                    
-                    // Load board state if it exists
+                    this.completedLevels = (gameState.completed_levels || []).map(l =>
+                        l.includes(':') ? l : `wiegleb:${l}`
+                    );
+
                     if (gameState.board_state && gameState.board_state.length > 0) {
                         this.board = gameState.board_state;
-                        // Load move history
                         this.moveHistory = gameState.move_history || [];
-                        console.log('Fallback loading: board state loaded, move history length:', this.moveHistory.length);
-                        // Update the move history display
                         this.updateMoveHistory();
-                        // Update display without clearing history
                         this.updateDisplay();
                         this.highlightActiveConfiguration();
-                        
-                        // Update level indicator
+
                         const levelNumber = this.currentConfig.replace('level', '');
                         document.getElementById('currentLevel').textContent = levelNumber;
                     } else {
                         this.loadConfiguration(this.currentConfig);
                     }
-                    
-                    console.log('Loaded user game state:', gameState);
                 } else {
-                    // If no saved state, load default configuration
                     this.loadConfiguration(this.currentConfig);
                 }
             }
@@ -1377,222 +1382,96 @@ class SkippingStonesGame {
             this.loadConfiguration(this.currentConfig);
         }
     }
-    
-    async saveGameState() {
-        if (!this.isUserLoggedIn) return;
-        
-        try {
-            console.log('Before saving - levelStates:', this.levelStates);
-            console.log('Current config:', this.currentConfig);
-            console.log('Current board:', this.board);
-            console.log('Current moveHistory:', this.moveHistory);
-            
-            // Make sure current level state is included in levelStates
-            this.levelStates[this.currentConfig] = {
-                board: this.board,
-                moveHistory: this.moveHistory
-            };
-            
-            console.log('After adding current level - levelStates:', this.levelStates);
-            
-            // Save all levels state
-            const allLevelsState = {
-                level_states: this.levelStates,
-                completed_levels: this.completedLevels,
-                current_level: this.currentConfig,
-                user_email: this.userEmail || '',
-                user_name: this.userName || ''
-            };
-            
-            console.log('Saving all levels state:', allLevelsState);
-            
-            const response = await fetch('/api/game-state/save-all-levels', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(allLevelsState)
-            });
-            
-            console.log('Save response status:', response.status);
-            
-            if (response.ok) {
-                console.log('All levels state saved successfully');
-                
-                // Mark as saved
-                this.hasUnsavedChanges = false;
-                this.updateSaveButtonState();
-                
-                // Show success feedback
-                const saveBtn = document.getElementById('saveBtn');
-                saveBtn.innerHTML = '<i class="fas fa-check me-2"></i>Saved!';
-                saveBtn.classList.remove('btn-success');
-                saveBtn.classList.add('btn-success');
-            } else if (response.status === 401) {
-                // User is not authenticated, update login status and show notification
-                console.log('User not authenticated during save, updating login status');
-                this.isUserLoggedIn = false;
-                this.userEmail = null;
-                this.userName = null;
-                this.updateSaveButtonState();
-                this.showSessionExpiredNotification();
-                
-                // Ask user if they want to log in
-                if (confirm('Your session has expired. Would you like to log in again to save your progress?')) {
-                    window.location.href = '/login';
-                }
-                return;
-            } else {
-                const errorText = await response.text();
-                console.error('Failed to save all levels state:', errorText);
-                alert('Failed to save game. Please try again.');
-            }
-        } catch (error) {
-            console.error('Error saving game:', error);
-            alert('Failed to save game. Please try again.');
-        }
-    }
-    
+
     async saveGameAuto() {
-        if (!this.isUserLoggedIn) {
-            return;
-        }
-        
+        if (!this.isUserLoggedIn) return;
+
         try {
-            // Make sure current level state is included in levelStates
-            const currentLevelState = {
+            const stateKey = this._stateKey(this.currentConfig);
+            this.levelStates[stateKey] = {
                 board: this.board,
                 moveHistory: this.moveHistory
             };
-            
-            console.log('Saving current level state for:', this.currentConfig);
-            console.log('Current moveHistory:', this.moveHistory);
-            console.log('Current moveHistory length:', this.moveHistory.length);
-            
-            this.levelStates[this.currentConfig] = currentLevelState;
-            
-            console.log('Auto-saving level state for:', this.currentConfig, 'with', this.moveHistory.length, 'moves');
-            console.log('All levelStates before save:', this.levelStates);
-            
-            // Save all levels state
+
             const allLevelsState = {
                 level_states: this.levelStates,
                 completed_levels: this.completedLevels,
                 current_level: this.currentConfig,
+                current_shape: this.currentShape,
                 user_email: this.userEmail || '',
                 user_name: this.userName || ''
             };
-            
-            console.log('Auto-saving all levels state:', allLevelsState);
-            
-            // Validate level states before saving
-            this.validateLevelStates();
-            
+
             const response = await fetch('/api/game-state/save-all-levels', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(allLevelsState)
             });
-            
-            console.log('Auto-save response status:', response.status);
-            
+
             if (response.ok) {
-                console.log('All levels state auto-saved successfully');
-                
-                // Mark as saved after successful auto-save
                 this.hasUnsavedChanges = false;
                 this.updateSaveButtonState();
-                
-                // Show success feedback for auto-save
+
                 const saveBtn = document.getElementById('saveBtn');
                 saveBtn.innerHTML = '<i class="fas fa-check me-2"></i>Saved!';
                 saveBtn.classList.remove('btn-success');
                 saveBtn.classList.add('btn-success');
             } else if (response.status === 401) {
-                // User is not authenticated, but don't redirect for auto-save
-                console.log('User not authenticated during auto-save, skipping');
                 return;
-            } else {
-                const errorText = await response.text();
-                console.error('Failed to auto-save all levels state:', errorText);
             }
         } catch (error) {
             console.error('Error auto-saving game:', error);
         }
     }
-    
+
     async saveGame() {
         if (!this.isUserLoggedIn) {
             alert('Please log in to save your game progress.');
             return;
         }
-        
+
         try {
-            console.log('Before saving - levelStates:', this.levelStates);
-            console.log('Current config:', this.currentConfig);
-            console.log('Current board:', this.board);
-            console.log('Current moveHistory:', this.moveHistory);
-            
-            // Make sure current level state is included in levelStates
-            this.levelStates[this.currentConfig] = {
+            const stateKey = this._stateKey(this.currentConfig);
+            this.levelStates[stateKey] = {
                 board: this.board,
                 moveHistory: this.moveHistory
             };
-            
-            console.log('After adding current level - levelStates:', this.levelStates);
-            
-            // Save all levels state
+
             const allLevelsState = {
                 level_states: this.levelStates,
                 completed_levels: this.completedLevels,
                 current_level: this.currentConfig,
+                current_shape: this.currentShape,
                 user_email: this.userEmail || '',
                 user_name: this.userName || ''
             };
-            
-            console.log('Saving all levels state:', allLevelsState);
-            
+
             const response = await fetch('/api/game-state/save-all-levels', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(allLevelsState)
             });
-            
-            console.log('Save response status:', response.status);
-            
+
             if (response.ok) {
-                console.log('All levels state saved successfully');
-                
-                // Mark as saved
                 this.hasUnsavedChanges = false;
                 this.updateSaveButtonState();
-                
-                // Show success feedback
+
                 const saveBtn = document.getElementById('saveBtn');
                 saveBtn.innerHTML = '<i class="fas fa-check me-2"></i>Saved!';
                 saveBtn.classList.remove('btn-success');
                 saveBtn.classList.add('btn-success');
             } else if (response.status === 401) {
-                // User is not authenticated, update login status and show notification
-                console.log('User not authenticated during save, updating login status');
                 this.isUserLoggedIn = false;
                 this.userEmail = null;
                 this.userName = null;
                 this.updateSaveButtonState();
                 this.showSessionExpiredNotification();
-                
-                // Ask user if they want to log in
+
                 if (confirm('Your session has expired. Would you like to log in again to save your progress?')) {
                     window.location.href = '/login';
                 }
                 return;
             } else {
-                const errorText = await response.text();
-                console.error('Failed to save all levels state:', errorText);
                 alert('Failed to save game. Please try again.');
             }
         } catch (error) {
@@ -1600,38 +1479,33 @@ class SkippingStonesGame {
             alert('Failed to save game. Please try again.');
         }
     }
-    
-    async markLevelCompleted(level) {
+
+    async markLevelCompleted(configKey) {
         if (!this.isUserLoggedIn) return;
-        
+
         try {
-            // Add level to completed levels if not already there
-            if (!this.completedLevels.includes(level)) {
-                this.completedLevels.push(level);
-                console.log(`Added ${level} to completed levels`);
+            const stateKey = this._stateKey(configKey);
+            if (!this.completedLevels.includes(stateKey)) {
+                this.completedLevels.push(stateKey);
             }
-            
-            // Store completion data for sharing
-            this.levelStates[level] = {
-                ...this.levelStates[level],
+
+            this.levelStates[stateKey] = {
+                ...this.levelStates[stateKey],
                 completed: true,
-                completionBoard: JSON.parse(JSON.stringify(this.board)), // Deep copy
-                completionMoves: JSON.parse(JSON.stringify(this.moveHistory)), // Deep copy
+                completionBoard: JSON.parse(JSON.stringify(this.board)),
+                completionMoves: JSON.parse(JSON.stringify(this.moveHistory)),
                 completionMarblesLeft: this.countMarbles()
             };
-            
-            // Save all levels state to update completed levels on server
+
             await this.saveGame();
-            
-            // Update user stats to reflect the change
             this.updateUserStats();
-            
-            console.log(`Level ${level} marked as completed and saved`);
+            this.renderConfigurations();
+            this.highlightActiveConfiguration();
         } catch (error) {
             console.error('Error marking level as completed:', error);
         }
     }
-    
+
     toggleHints() {
         if (this.hintsEnabled) {
             this.cancelHintSolving();
@@ -1673,7 +1547,7 @@ class SkippingStonesGame {
             const response = await fetch('/api/skipping-stones/hint', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ board: this.board })
+                body: JSON.stringify({ board: this.board, shape_id: this.currentShape })
             });
             if (requestId !== this.hintRequestId) return;
             if (!response.ok) {
@@ -1692,11 +1566,17 @@ class SkippingStonesGame {
 
                 buffer += decoder.decode(value, { stream: true });
                 const lines = buffer.split('\n');
-                buffer = lines.pop(); // keep incomplete line in buffer
+                buffer = lines.pop();
 
                 for (const line of lines) {
                     if (!line.trim()) continue;
-                    const msg = JSON.parse(line);
+                    let msg;
+                    try {
+                        msg = JSON.parse(line);
+                    } catch (e) {
+                        console.warn('Skipping malformed hint JSON:', line);
+                        continue;
+                    }
                     if (msg.type === 'progress') {
                         const elapsed = Math.floor(msg.elapsed);
                         hintBtn.innerHTML = `<i class="fas fa-spinner fa-spin me-2"></i>Solving... ${elapsed}s`;
@@ -1710,7 +1590,7 @@ class SkippingStonesGame {
                             if (msg.no_solution) {
                                 this.showHintNotification('No solution exists from this position.', 'info');
                             } else if (msg.queued && msg.timed_out) {
-                                this.showHintNotification('Solver timed out. Queued for background solving — check back later.', 'warning');
+                                this.showHintNotification('Solver timed out. Queued for background solving \u2014 check back later.', 'warning');
                             } else if (msg.queued) {
                                 this.showHintNotification('Queued for background solving. Check back later.', 'info');
                             } else if (msg.timed_out) {
@@ -1768,25 +1648,28 @@ class SkippingStonesGame {
         }
         return 'Playing';
     }
-    
+
     updateUserStats() {
         if (!this.isUserLoggedIn) {
             document.getElementById('userStatsCard').style.display = 'none';
             return;
         }
-        
-        // Only show user stats if the user is actually logged in
+
         document.getElementById('userStatsCard').style.display = 'block';
         const completedCount = this.completedLevels.length;
-        const totalLevels = 7;
-        const progressPercentage = (completedCount / totalLevels) * 100;
-        
+        // Count total levels across all shapes
+        let totalLevels = 0;
+        for (const shapeId of this.shapeOrder) {
+            totalLevels += Object.keys(this.shapes[shapeId].levels).length;
+        }
+        const progressPercentage = totalLevels > 0 ? (completedCount / totalLevels) * 100 : 0;
+
         document.getElementById('completedLevels').textContent = completedCount;
         document.getElementById('totalLevels').textContent = totalLevels;
         document.getElementById('progressBar').style.width = `${progressPercentage}%`;
         document.getElementById('progressBar').setAttribute('aria-valuenow', progressPercentage);
     }
-    
+
     updateSaveButtonState() {
         const saveBtn = document.getElementById('saveBtn');
         if (!this.isUserLoggedIn) {
@@ -1812,71 +1695,65 @@ class SkippingStonesGame {
             }
         }
     }
-    
+
     showShareButton() {
         const shareBtn = document.getElementById('shareBtn');
         shareBtn.style.display = 'inline-block';
         shareBtn.classList.add('btn-info');
         shareBtn.classList.remove('btn-secondary');
     }
-    
+
     hideShareButton() {
         const shareBtn = document.getElementById('shareBtn');
         shareBtn.style.display = 'none';
     }
-    
+
     async showShareModal() {
         if (!this.isUserLoggedIn) {
             alert('Please log in to share your achievements.');
             return;
         }
-        
-        // Check if level is completed
-        if (!this.completedLevels.includes(this.currentConfig)) {
+
+        const stateKey = this._stateKey(this.currentConfig);
+        if (!this.completedLevels.includes(stateKey)) {
             alert('This level has not been completed yet. Complete the level to share your achievement!');
             return;
         }
-        
-        // Show modal
+
         const modal = new bootstrap.Modal(document.getElementById('shareModal'));
         modal.show();
-        
-        // Check if native sharing is available
+
         const nativeShareBtn = document.getElementById('nativeShareBtn');
         if (navigator.share) {
             nativeShareBtn.style.display = 'inline-block';
         } else {
             nativeShareBtn.style.display = 'none';
         }
-        
+
         try {
-            // Use completion data if available, otherwise use current state
-            const levelState = this.levelStates[this.currentConfig];
+            const levelState = this.levelStates[stateKey];
             let boardState = this.board;
             let movesCount = this.moveHistory.length;
             let marblesLeft = this.countMarbles();
-            
-            // If we have stored completion data, use that for more accurate sharing
+
             if (levelState && levelState.completed && levelState.completionBoard) {
                 boardState = levelState.completionBoard;
                 movesCount = levelState.completionMoves ? levelState.completionMoves.length : this.moveHistory.length;
                 marblesLeft = levelState.completionMarblesLeft || 1;
             }
-            
-            // Generate share image
+
             const response = await fetch('/api/share/level-completed', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     level: this.currentConfig,
+                    shape_id: this.currentShape,
                     board_state: boardState,
                     moves_count: movesCount,
                     marbles_left: marblesLeft
                 })
             });
-            
+
             if (response.ok) {
                 const data = await response.json();
                 this.displayShareImage(data.image_data, data.level_name);
@@ -1885,79 +1762,71 @@ class SkippingStonesGame {
             }
         } catch (error) {
             console.error('Error generating share image:', error);
-            document.getElementById('shareImageContainer').innerHTML = 
+            document.getElementById('shareImageContainer').innerHTML =
                 '<p class="text-danger">Failed to generate share image. Please try again.</p>';
         }
     }
-    
+
     displayShareImage(imageData, levelName) {
         const container = document.getElementById('shareImageContainer');
         container.innerHTML = `
-            <h6 class="mb-3">🎯 ${levelName} Completed!</h6>
-            <img src="data:image/png;base64,${imageData}" 
-                 alt="Shareable achievement image" 
-                 class="img-fluid rounded shadow" 
+            <h6 class="mb-3">${levelName} Completed!</h6>
+            <img src="data:image/png;base64,${imageData}"
+                 alt="Shareable achievement image"
+                 class="img-fluid rounded shadow"
                  style="max-width: 100%; max-height: 500px;">
             <p class="text-muted mt-3">Share this image to show off your achievement!</p>
         `;
-        
-        // Store image data for download/copy
+
         this.currentShareImageData = imageData;
     }
-    
+
     downloadShareImage() {
         if (!this.currentShareImageData) return;
-        
+
         const link = document.createElement('a');
         link.href = `data:image/png;base64,${this.currentShareImageData}`;
-        link.download = `skipping-stones-achievement-${this.currentConfig}.png`;
+        link.download = `skipping-stones-achievement-${this.currentShape}-${this.currentConfig}.png`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
     }
-    
+
     async nativeShare() {
         if (!this.currentShareImageData) return;
-        
+
         try {
-            // Convert base64 to blob
             const response = await fetch(`data:image/png;base64,${this.currentShareImageData}`);
             const blob = await response.blob();
-            
-            // Create file from blob
-            const file = new File([blob], `skipping-stones-achievement-${this.currentConfig}.png`, {
+
+            const file = new File([blob], `skipping-stones-achievement-${this.currentShape}-${this.currentConfig}.png`, {
                 type: 'image/png'
             });
-            
-            // Prepare share data
+
             const shareData = {
                 title: `Skipping Stones Achievement - ${this.currentConfig}`,
                 text: `I completed ${this.currentConfig} in Skipping Stones! Check out my achievement!`,
                 files: [file]
             };
-            
-            // Use native share API
+
             await navigator.share(shareData);
-            
-            // Show success feedback
+
             const nativeShareBtn = document.getElementById('nativeShareBtn');
             const originalText = nativeShareBtn.innerHTML;
             nativeShareBtn.innerHTML = '<i class="fas fa-check me-2"></i>Shared!';
             nativeShareBtn.classList.remove('btn-info');
             nativeShareBtn.classList.add('btn-success');
-            
+
             setTimeout(() => {
                 nativeShareBtn.innerHTML = originalText;
                 nativeShareBtn.classList.remove('btn-success');
                 nativeShareBtn.classList.add('btn-info');
             }, 2000);
-            
+
         } catch (error) {
             console.error('Error sharing image:', error);
-            
-            // Don't show error if user cancelled
+
             if (error.name !== 'AbortError') {
-                // Show error in modal
                 const container = document.getElementById('shareImageContainer');
                 const currentContent = container.innerHTML;
                 container.innerHTML = `
@@ -1967,8 +1836,7 @@ class SkippingStonesGame {
                         Failed to share image. Please try downloading instead.
                     </div>
                 `;
-                
-                // Hide error after 5 seconds
+
                 setTimeout(() => {
                     container.innerHTML = currentContent;
                 }, 5000);
@@ -1980,75 +1848,59 @@ class SkippingStonesGame {
 // Initialize the game when the page loads
 document.addEventListener('DOMContentLoaded', () => {
     const game = new SkippingStonesGame();
-    
-    // Add logout handler to clear session storage
+
     window.addEventListener('beforeunload', () => {
-        // Clear session storage when page is unloaded (logout or navigation)
         if (game.isUserLoggedIn) {
             game.clearSessionStorage();
         }
     });
-    
-    // Add click handler for logout link
+
     const logoutLink = document.querySelector('a[href*="logout"]');
     if (logoutLink) {
         logoutLink.addEventListener('click', async (e) => {
             e.preventDefault();
-            
+
             if (game.isUserLoggedIn) {
                 try {
-                    // Call the API logout endpoint
                     const response = await fetch('/api/auth/logout', {
                         method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        }
+                        headers: { 'Content-Type': 'application/json' }
                     });
-                    
+
                     if (response.ok) {
-                        // Clear session storage
                         game.clearSessionStorage();
-                        // Clear localStorage backup
                         localStorage.removeItem('skippingStones_backup');
-                        // Force login status check
                         game.isUserLoggedIn = false;
                         game.userEmail = null;
                         game.userName = null;
                         game.updateSaveButtonState();
-                        // Redirect to logout page
                         window.location.href = '/logout';
                     } else {
-                        // Fallback to direct logout
                         window.location.href = '/logout';
                     }
                 } catch (error) {
                     console.error('Error during logout:', error);
-                    // Fallback to direct logout
                     window.location.href = '/logout';
                 }
             } else {
-                // User not logged in, just redirect
                 window.location.href = '/logout';
             }
         });
     }
-    
-    // Add click handler for switch account link
+
     const switchAccountLink = document.querySelector('a[href*="switch-account"]');
     if (switchAccountLink) {
         switchAccountLink.addEventListener('click', (e) => {
-            // Clear session storage when switching accounts
             game.clearSessionStorage();
             localStorage.removeItem('skippingStones_backup');
         });
     }
-    
-    // Set up periodic session checking (every 15 minutes instead of 5)
+
     setInterval(() => {
         if (game.isUserLoggedIn) {
             game.checkUserLoginStatus();
         }
-    }, 15 * 60 * 1000); // 15 minutes
+    }, 15 * 60 * 1000);
 });
 </script>
-{% endblock %} 
+{% endblock %}

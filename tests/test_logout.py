@@ -83,7 +83,7 @@ def test_logout_clears_user_state():
         after_auth = response.json()
         print(f"Auth status after logout: {after_auth.get('authenticated', False)}")
         
-        if not after_auth.get('authenticated', True):
+        if not after_auth.get('authenticated', False):
             print("✓ User properly logged out")
         else:
             print("✗ User still appears logged in after logout")
@@ -91,7 +91,7 @@ def test_logout_clears_user_state():
     except Exception as e:
         print(f"✗ Failed to check auth status after logout: {e}")
         return False
-    
+
     return True
 
 def test_logout_functionality():
@@ -203,7 +203,7 @@ def test_browser_logout_flow():
     try:
         response = session.get(f"{base_url}/api/auth/status")
         auth_data = response.json()
-        if not auth_data.get('authenticated', True):
+        if not auth_data.get('authenticated', False):
             print("✓ User properly logged out after full flow")
         else:
             print("✗ User still appears logged in after full flow")

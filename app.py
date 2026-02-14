@@ -10,6 +10,7 @@ from database import db
 from solver import get_hint, solve, _board_to_bits, _bits_to_board
 from solver_cache import solver_cache
 from solver_queue import solver_queue
+from board_shapes import BOARD_SHAPES, SHAPE_ORDER
 from functools import wraps
 from PIL import Image, ImageDraw, ImageFont
 import io
@@ -152,8 +153,8 @@ def verify_google_id_token(id_token):
                     import base64
                     
                     # Extract the key components from JWK
-                    n = int.from_bytes(base64.urlsafe_b64decode(key['n'] + '=='), 'big')
-                    e = int.from_bytes(base64.urlsafe_b64decode(key['e'] + '=='), 'big')
+                    n = int.from_bytes(base64.urlsafe_b64decode(key['n'] + '=' * (-len(key['n']) % 4)), 'big')
+                    e = int.from_bytes(base64.urlsafe_b64decode(key['e'] + '=' * (-len(key['e']) % 4)), 'big')
                     
                     # Create the public key
                     public_numbers = rsa.RSAPublicNumbers(e, n)
@@ -356,95 +357,130 @@ def switch_account():
 def skipping_stones():
     return render_template('skipping_stones.html')
 
+def _build_full_board_marbles(shape_id):
+    """Generate a full-board level for a shape: all valid cells except the center."""
+    shape = BOARD_SHAPES[shape_id]
+    center = shape['center']
+    return [list(cell) for cell in shape['valid_cells'] if cell != center]
+
+
+# Wiegleb levels (preserved exactly as-is)
+WIEGLEB_LEVELS = {
+    'level1': {
+        'name': 'Level 1',
+        'description': 'Cross',
+        'marbles': [
+            [4, 2], [4, 3], [4, 4], [4, 5], [4, 6],
+            [2, 4], [3, 4], [5, 4], [6, 4]
+        ]
+    },
+    'level2': {
+        'name': 'Level 2',
+        'description': 'Small triangle',
+        'marbles': [
+            [2, 4],
+            [3, 3], [3, 4], [3, 5],
+            [4, 2], [4, 3], [4, 4], [4, 5], [4, 6],
+            [5, 1], [5, 2], [5, 3], [5, 4], [5, 5], [5, 6], [5, 7]
+        ]
+    },
+    'level3': {
+        'name': 'Level 3',
+        'description': 'Arrow',
+        'marbles': [
+            [1, 4],
+            [2, 3], [2, 4], [2, 5],
+            [3, 2], [3, 3], [3, 4], [3, 5], [3, 6],
+            [4, 4],
+            [5, 4],
+            [6, 3], [6, 4], [6, 5],
+            [7, 3], [7, 4], [7, 5]
+        ]
+    },
+    'level4': {
+        'name': 'Level 4',
+        'description': 'Diamond',
+        'marbles': [
+            [1, 4],
+            [2, 3], [2, 4], [2, 5],
+            [3, 2], [3, 3], [3, 4], [3, 5], [3, 6],
+            [4, 1], [4, 2], [4, 3], [4, 5], [4, 6], [4, 7],
+            [5, 2], [5, 3], [5, 4], [5, 5], [5, 6],
+            [6, 3], [6, 4], [6, 5],
+            [7, 4]
+        ]
+    },
+    'level5': {
+        'name': 'Level 5',
+        'description': 'Big triangle',
+        'marbles': [
+            [1, 4],
+            [2, 3], [2, 4], [2, 5],
+            [3, 2], [3, 3], [3, 4], [3, 5], [3, 6],
+            [4, 1], [4, 2], [4, 3], [4, 4], [4, 5], [4, 6], [4, 7],
+            [5, 0], [5, 1], [5, 2], [5, 3], [5, 4], [5, 5], [5, 6], [5, 7], [5, 8]
+        ]
+    },
+    'level6': {
+        'name': 'Level 6',
+        'description': 'Small square',
+        'marbles': [
+            [1, 3], [1, 4], [1, 5],
+            [2, 3], [2, 4], [2, 5],
+            [3, 1], [3, 2], [3, 3], [3, 4], [3, 5], [3, 6], [3, 7],
+            [4, 1], [4, 2], [4, 3], [4, 5], [4, 6], [4, 7],
+            [5, 1], [5, 2], [5, 3], [5, 4], [5, 5], [5, 6], [5, 7],
+            [6, 3], [6, 4], [6, 5],
+            [7, 3], [7, 4], [7, 5]
+        ]
+    },
+    'level7': {
+        'name': 'Level 7',
+        'description': 'Full board',
+        'marbles': [
+            [0, 3], [0, 4], [0, 5],
+            [1, 3], [1, 4], [1, 5],
+            [2, 3], [2, 4], [2, 5],
+            [3, 0], [3, 1], [3, 2], [3, 3], [3, 4], [3, 5], [3, 6], [3, 7], [3, 8],
+            [4, 0], [4, 1], [4, 2], [4, 3], [4, 5], [4, 6], [4, 7], [4, 8],
+            [5, 0], [5, 1], [5, 2], [5, 3], [5, 4], [5, 5], [5, 6], [5, 7], [5, 8],
+            [6, 3], [6, 4], [6, 5],
+            [7, 3], [7, 4], [7, 5],
+            [8, 3], [8, 4], [8, 5]
+        ]
+    }
+}
+
+
 @app.route('/api/skipping-stones/configs')
 def get_game_configs():
-    """Return the 7 classic configurations for the skipping stones game"""
-    configs = {
-        'level1': {
-            'name': 'Level 1',
-            'description': 'Cross',
-            'marbles': [
-                (4, 2), (4, 3), (4, 4), (4, 5), (4, 6),
-                (2, 4), (3, 4), (5, 4), (6, 4)
-            ]
-        },
-        'level2': {
-            'name': 'Level 2',
-            'description': 'Small triangle',
-            'marbles': [
-                (2, 4),
-                (3, 3), (3, 4), (3, 5),
-                (4, 2), (4, 3), (4, 4), (4, 5), (4, 6),
-                (5 ,1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7)
-            ]
-        },
-        'level3': {
-            'name': 'Level 3',
-            'description': 'Arrow',
-            'marbles': [
-                (1, 4),
-                (2, 3), (2, 4), (2, 5),
-                (3, 2), (3, 3), (3, 4), (3, 5), (3, 6),
-                (4, 4),
-                (5, 4),
-                (6, 3), (6, 4), (6, 5),
-                (7, 3), (7, 4), (7, 5)
-            ]
-        },
-        'level4': {
-            'name': 'Level 4',
-            'description': 'Diamond',
-            'marbles': [
-                (1, 4),
-                (2, 3), (2, 4), (2,5),
-                (3, 2), (3, 3), (3, 4), (3, 5), (3, 6),
-                (4, 1), (4, 2), (4, 3), (4, 5), (4, 6), (4, 7),
-                (5, 2), (5, 3), (5, 4), (5, 5), (5, 6),
-                (6, 3), (6, 4), (6, 5),
-                (7, 4)
-            ]
-        },
-        'level5': {
-            'name': 'Level 5',
-            'description': 'Big triangle',
-            'marbles': [
-                (1, 4),
-                (2, 3), (2, 4), (2, 5),
-                (3, 2), (3, 3), (3, 4), (3, 5), (3, 6),
-                (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7),
-                (5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7), (5, 8)
-            ]
-        },
-        'level6': {
-            'name': 'Level 6',
-            'description': 'Small square',
-            'marbles': [
-                (1, 3), (1, 4), (1, 5),
-                (2, 3), (2, 4), (2, 5),
-                (3, 1), (3, 2), (3, 3), (3, 4), (3, 5), (3, 6), (3, 7),
-                (4, 1), (4, 2), (4, 3), (4, 5), (4, 6), (4, 7),
-                (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7),
-                (6, 3), (6, 4), (6, 5),
-                (7, 3), (7, 4), (7, 5)
-            ]
-        },
-        'level7': {
-            'name': 'Level 7',
-            'description': 'Full board',
-            'marbles': [
-                (0, 3), (0, 4), (0, 5),
-                (1, 3), (1, 4), (1, 5),
-                (2, 3), (2, 4), (2, 5),
-                (3, 0), (3, 1), (3, 2), (3, 3), (3, 4), (3, 5), (3, 6), (3, 7), (3, 8),
-                (4, 0), (4, 1), (4, 2), (4, 3), (4, 5), (4, 6), (4, 7), (4, 8),
-                (5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7), (5, 8),
-                (6, 3), (6, 4), (6, 5),
-                (7, 3), (7, 4), (7, 5),
-                (8, 3), (8, 4), (8, 5)
-            ]
+    """Return all board shapes with their level configurations."""
+    shapes = {}
+    for shape_id in SHAPE_ORDER:
+        shape = BOARD_SHAPES[shape_id]
+        shape_data = {
+            'name': shape['name'],
+            'rows': shape['rows'],
+            'cols': shape['cols'],
+            'validCells': [list(cell) for cell in shape['valid_cells']],
+            'center': list(shape['center']),
         }
-    }
-    return configs
+        if shape_id == 'wiegleb':
+            shape_data['levels'] = WIEGLEB_LEVELS
+        else:
+            shape_data['levels'] = {
+                'level1': {
+                    'name': 'Full Board',
+                    'description': f'{shape["name"]} - all cells filled',
+                    'marbles': _build_full_board_marbles(shape_id)
+                }
+            }
+        shapes[shape_id] = shape_data
+
+    return jsonify({
+        'shapes': shapes,
+        'shapeOrder': SHAPE_ORDER,
+    })
 
 @app.route('/api/skipping-stones/hint', methods=['POST'])
 def get_game_hint():
@@ -452,13 +488,14 @@ def get_game_hint():
     import queue as queue_mod
 
     data = request.get_json()
-    board = data.get('board')  # 9x9 boolean array
+    board = data.get('board')  # boolean array (rows x cols)
+    shape_id = data.get('shape_id', 'wiegleb')
     stone_count = sum(1 for row in board for cell in row if cell)
 
     # Check solver cache first
-    bits = _board_to_bits(board)
+    bits = _board_to_bits(board, shape_id)
     try:
-        cached = solver_cache.get_solution(bits)
+        cached = solver_cache.get_solution(bits, shape_id)
         if cached == 'NO_SOLUTION':
             return Response(
                 json.dumps({'type': 'result', 'hint': None, 'no_solution': True}) + '\n',
@@ -484,7 +521,7 @@ def get_game_hint():
     def solver_thread():
         try:
             start = time.monotonic()
-            solution = solve(board, time_limit=time_limit)
+            solution = solve(board, time_limit=time_limit, shape_id=shape_id)
             elapsed = time.monotonic() - start
             did_timeout = solution is None and elapsed >= time_limit * 0.9
             q.put(('done', solution, did_timeout))
@@ -504,13 +541,17 @@ def get_game_hint():
                 elapsed = time.monotonic() - start
                 yield json.dumps({'type': 'progress', 'elapsed': round(elapsed, 1), 'time_limit': round(time_limit, 1)}) + '\n'
                 if elapsed > time_limit + 5:
-                    # Enqueue for background solving
+                    # Enqueue for background solving (skip if already queued)
+                    queued = False
                     try:
-                        solver_queue.enqueue(bits, stone_count)
-                        solver_cache.put_queued(bits, stone_count)
+                        existing = solver_cache.get_solution(bits, shape_id)
+                        if existing != 'QUEUED':
+                            solver_queue.enqueue(bits, stone_count, shape_id)
+                            solver_cache.put_queued(bits, stone_count, shape_id)
+                        queued = True
                     except Exception:
                         pass
-                    yield json.dumps({'type': 'result', 'hint': None, 'timed_out': True, 'queued': True}) + '\n'
+                    yield json.dumps({'type': 'result', 'hint': None, 'timed_out': True, 'queued': queued}) + '\n'
                     return
                 continue
 
@@ -520,22 +561,26 @@ def get_game_hint():
                 if solution and len(solution) > 0:
                     # Write-through: cache the entire solution path
                     try:
-                        solver_cache.cache_solution_path(bits, solution, stone_count)
+                        solver_cache.cache_solution_path(bits, solution, stone_count, shape_id)
                     except Exception:
                         pass
                     yield json.dumps({'type': 'result', 'hint': solution[0]}) + '\n'
                 elif did_timeout:
-                    # Enqueue for background solving
+                    # Enqueue for background solving (skip if already queued)
+                    queued = False
                     try:
-                        solver_queue.enqueue(bits, stone_count)
-                        solver_cache.put_queued(bits, stone_count)
+                        existing = solver_cache.get_solution(bits, shape_id)
+                        if existing != 'QUEUED':
+                            solver_queue.enqueue(bits, stone_count, shape_id)
+                            solver_cache.put_queued(bits, stone_count, shape_id)
+                        queued = True
                     except Exception:
                         pass
-                    yield json.dumps({'type': 'result', 'hint': None, 'timed_out': True, 'queued': True}) + '\n'
+                    yield json.dumps({'type': 'result', 'hint': None, 'timed_out': True, 'queued': queued}) + '\n'
                 else:
                     # Exhaustive search found no solution — cache negative result
                     try:
-                        solver_cache.put_no_solution(bits, stone_count)
+                        solver_cache.put_no_solution(bits, stone_count, shape_id)
                     except Exception:
                         pass
                     yield json.dumps({'type': 'result', 'hint': None, 'no_solution': True}) + '\n'
@@ -791,8 +836,11 @@ def generate_share_image():
             return jsonify({'error': 'No level specified'}), 400
         
         # Get level configuration
-        configs = get_game_configs()
-        level_config = configs.get(level, {})
+        shape_id = data.get('shape_id', 'wiegleb')
+        configs_response = get_game_configs().get_json()
+        shape_data = configs_response['shapes'].get(shape_id, {})
+        levels = shape_data.get('levels', {})
+        level_config = levels.get(level, {})
         level_name = level_config.get('name', level)
         level_description = level_config.get('description', '')
         
@@ -805,7 +853,8 @@ def generate_share_image():
             marbles_left=marbles_left,
             user_name=current_user.name,
             user_email=current_user.email,
-            level=level
+            level=level,
+            shape_id=shape_id,
         )
         
         # Convert to base64 for easy sharing
@@ -820,7 +869,7 @@ def generate_share_image():
     except Exception as e:
         return jsonify({'error': 'Internal server error'}), 500
 
-def create_share_image(level_name, level_description, board_state, moves_count, marbles_left, user_name, user_email, level):
+def create_share_image(level_name, level_description, board_state, moves_count, marbles_left, user_name, user_email, level, shape_id='wiegleb'):
     """Create a shareable image for a completed level"""
     try:
         # Image dimensions - make it square
@@ -891,62 +940,63 @@ def create_share_image(level_name, level_description, board_state, moves_count, 
         draw.rectangle([board_x-10, board_y-10, board_x+board_size+10, board_y+board_size+10], 
                       fill='#2d2d44', outline='#4a4a6a', width=3)
         
-        # Draw board cells
-        cell_size = board_size // 9
-        
+        # Draw board cells using dynamic shape info
+        shape = BOARD_SHAPES[shape_id]
+        shape_rows = shape['rows']
+        shape_cols = shape['cols']
+        valid_cells_set = set(shape['valid_cells'])
+        cell_size = board_size // max(shape_rows, shape_cols)
+
         # Get initial configuration for this level
-        configs = get_game_configs()
-        level_config = configs.get(level, {})
-        initial_marbles = level_config.get('marbles', [])
-        
-        for i in range(9):
-            for j in range(9):
+        configs_response = get_game_configs().get_json()
+        shape_data = configs_response['shapes'].get(shape_id, {})
+        levels = shape_data.get('levels', {})
+        level_config = levels.get(level, {})
+        initial_marbles = [tuple(m) for m in level_config.get('marbles', [])]
+        initial_marbles_set = set(initial_marbles)
+
+        for i in range(shape_rows):
+            for j in range(shape_cols):
                 x = board_x + j * cell_size
                 y = board_y + i * cell_size
-                
-                # Determine cell color
-                if i < 3 and j < 3 or i > 5 and j > 5 or i < 3 and j > 5 or i > 5 and j < 3:
-                    # Invalid cells
+
+                # Determine cell color based on valid cells
+                if (i, j) not in valid_cells_set:
                     cell_color = '#1a1a2e'
                 else:
                     cell_color = '#f8f9fa'
-                
+
                 # Draw cell
-                draw.rectangle([x, y, x+cell_size, y+cell_size], 
+                draw.rectangle([x, y, x+cell_size, y+cell_size],
                              fill=cell_color, outline='#dee2e6', width=1)
-                
+
                 # Draw initial marble positions as lightly shaded squares
-                if (i, j) in initial_marbles:
-                    # Draw medium light orange square for initial marble positions
-                    draw.rectangle([x+2, y+2, x+cell_size-2, y+cell_size-2], 
+                if (i, j) in initial_marbles_set:
+                    draw.rectangle([x+2, y+2, x+cell_size-2, y+cell_size-2],
                                  fill='#ffd8a8', outline='#ffc078', width=1)
-                
+
                 # Draw current marble if present
                 if i < len(board_state) and j < len(board_state[i]) and board_state[i][j]:
                     marble_radius = cell_size // 3
                     marble_x = x + cell_size // 2
                     marble_y = y + cell_size // 2
-                    
+
                     # Draw marble with gradient effect
                     for r in range(marble_radius, 0, -1):
                         alpha = int(255 * (1 - (marble_radius - r) / marble_radius))
                         color = (0, 123, 255, alpha)
-                        draw.ellipse([marble_x-r, marble_y-r, marble_x+r, marble_y+r], 
+                        draw.ellipse([marble_x-r, marble_y-r, marble_x+r, marble_y+r],
                                    fill=color, outline='#0056b3', width=2)
         
         # Stats section
         stats_y = board_y + board_size + 20
-        
+
         # Stats background - make it tighter
         stats_bg_y = stats_y - 8
         stats_bg_height = 80
-        draw.rectangle([80, stats_bg_y, width-80, stats_bg_y+stats_bg_height], 
+        draw.rectangle([80, stats_bg_y, width-80, stats_bg_y+stats_bg_height],
                       fill='#2d2d44', outline='#4a4a6a', width=2)
-        
-        # Calculate initial marbles count from level config
-        configs = get_game_configs()
-        level_config = configs.get(level, {})
-        initial_marbles = level_config.get('marbles', [])
+
         initial_marbles_count = len(initial_marbles)
         
         # Stats text
@@ -1002,29 +1052,34 @@ def background_solver_worker():
                 time.sleep(30)
                 continue
 
-            bits = int(item['board_state'])
+            shape_id = item.get('shape_id', 'wiegleb')
+            raw_key = item['board_state']
+            bits = int(raw_key.split(':')[-1]) if ':' in raw_key else int(raw_key)
             sc = int(item['stone_count'])
-            board = _bits_to_board(bits)
-            print(f"[background-solver] Solving queued state: {bits} ({sc} stones)")
+            board = _bits_to_board(bits, shape_id)
+            print(f"[background-solver] Solving queued state: {bits} ({sc} stones, shape={shape_id})")
 
             start = time.monotonic()
-            solution = solve(board, time_limit=1800)
+            solution = solve(board, time_limit=1800, shape_id=shape_id)
             elapsed = time.monotonic() - start
 
             if solution is not None and len(solution) > 0:
-                solver_cache.cache_solution_path(bits, solution, sc)
-                solver_queue.mark_solved(bits)
+                solver_cache.cache_solution_path(bits, solution, sc, shape_id)
+                solver_queue.mark_solved(bits, shape_id)
                 print(f"[background-solver] Solved {bits} in {elapsed:.1f}s ({len(solution)} moves)")
             else:
-                solver_cache.put_no_solution(bits, sc)
-                solver_queue.mark_failed(bits)
+                solver_cache.put_no_solution(bits, sc, shape_id)
+                solver_queue.mark_failed(bits, shape_id)
                 print(f"[background-solver] No solution for {bits} ({elapsed:.1f}s)")
         except Exception as e:
             print(f"[background-solver] Error: {e}")
             # Release the item so it can be retried
             try:
                 if item:
-                    solver_queue.release(int(item['board_state']))
+                    shape_id = item.get('shape_id', 'wiegleb')
+                    raw_key = item['board_state']
+                    bits = int(raw_key.split(':')[-1]) if ':' in raw_key else int(raw_key)
+                    solver_queue.release(bits, shape_id)
             except Exception:
                 pass
             time.sleep(5)
