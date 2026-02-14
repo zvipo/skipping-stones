@@ -47,6 +47,7 @@ def test_board_compression():
     print(f"Compressed size: {compressed_size} characters")
     print(f"Compression ratio: {compressed_size/original_size:.2%}")
     print(f"Decompression correct: {is_correct}")
+    assert board == decompressed, "Board decompression did not match original"
     print()
 
 def test_move_history_compression():
@@ -78,6 +79,7 @@ def test_move_history_compression():
     print(f"Compressed size: {compressed_size} characters")
     print(f"Compression ratio: {compressed_size/original_size:.2%}")
     print(f"Decompression correct: {is_correct}")
+    assert move_history == decompressed, "Move history decompression did not match original"
     print()
 
 def test_level_states_compression():
@@ -141,6 +143,7 @@ def test_level_states_compression():
     print(f"Compressed size: {compressed_size} characters")
     print(f"Compression ratio: {compressed_size/original_size:.2%}")
     print(f"Decompression correct: {is_correct}")
+    assert level_states == decompressed, "Level states decompression did not match original"
     print()
 
 def test_user_example():
@@ -181,6 +184,7 @@ def test_user_example():
     print(f"Compressed size: {compressed_size} characters")
     print(f"Compression ratio: {compressed_size/original_size:.2%}")
     print(f"Decompression correct: {is_correct}")
+    assert user_data == decompressed, "User example decompression did not match original"
     print()
 
 if __name__ == "__main__":

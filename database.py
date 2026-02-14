@@ -151,9 +151,9 @@ def decompress_move_history(compressed: str) -> List[Dict]:
                 move_history = []
                 for move in compressed_moves:
                     full_move = {
-                        'from': move.get('f', {}),
-                        'jumped': move.get('j', {}),
-                        'to': move.get('t', {})
+                        'from': move.get('f', move.get('from', {})),
+                        'jumped': move.get('j', move.get('jumped', {})),
+                        'to': move.get('t', move.get('to', {}))
                     }
                     move_history.append(full_move)
                 return move_history
