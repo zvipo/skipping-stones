@@ -49,15 +49,23 @@ class SolverQueue:
             else:
                 raise e
 
-    def enqueue(self, board_bits: int, stone_count: int):
+    def _queue_key(self, board_bits: int, shape_id: str = 'wiegleb') -> str:
+        """Build the DynamoDB hash key, prefixed with shape_id for non-wiegleb shapes."""
+        if shape_id == 'wiegleb':
+            return str(board_bits)
+        return f"{shape_id}:{board_bits}"
+
+    def enqueue(self, board_bits: int, stone_count: int, shape_id: str = 'wiegleb'):
         """Add a board state to the queue. Idempotent — only writes if the
         item doesn't exist or is in pending/failed status."""
         now = datetime.now().isoformat()
+        key = self._queue_key(board_bits, shape_id)
         try:
             self.table.put_item(
                 Item={
-                    'board_state': str(board_bits),
+                    'board_state': key,
                     'stone_count': stone_count,
+                    'shape_id': shape_id,
                     'status': 'pending',
                     'created_at': now,
                     'updated_at': now,
@@ -94,7 +102,11 @@ class SolverQueue:
                     item_time = datetime.min  # Treat unparseable as stale
                 age = (cutoff - item_time).total_seconds()
                 if age > max_age_seconds:
-                    self.release(int(item['board_state']))
+                    item_shape = item.get('shape_id', 'wiegleb')
+                    # Parse board_bits from key (may be "shape:bits" or just "bits")
+                    raw_key = item['board_state']
+                    item_bits = int(raw_key.split(':')[-1]) if ':' in raw_key else int(raw_key)
+                    self.release(item_bits, item_shape)
                     reset_count += 1
             if reset_count > 0:
                 print(f"Solver queue: reset {reset_count} stale item(s) to pending.")
@@ -209,25 +221,28 @@ class SolverQueue:
             print(f"Solver queue claim error: {e}")
             return None
 
-    def mark_solved(self, board_bits: int):
+    def mark_solved(self, board_bits: int, shape_id: str = 'wiegleb'):
         """Remove a solved item from the queue (result is in the solver cache)."""
         try:
-            self.table.delete_item(Key={'board_state': str(board_bits)})
+            key = self._queue_key(board_bits, shape_id)
+            self.table.delete_item(Key={'board_state': key})
         except Exception as e:
             print(f"Solver queue mark_solved error: {e}")
 
-    def mark_failed(self, board_bits: int):
+    def mark_failed(self, board_bits: int, shape_id: str = 'wiegleb'):
         """Remove a failed item from the queue (negative result is in the solver cache)."""
         try:
-            self.table.delete_item(Key={'board_state': str(board_bits)})
+            key = self._queue_key(board_bits, shape_id)
+            self.table.delete_item(Key={'board_state': key})
         except Exception as e:
             print(f"Solver queue mark_failed error: {e}")
 
-    def release(self, board_bits: int):
+    def release(self, board_bits: int, shape_id: str = 'wiegleb'):
         """Reset a queue item back to pending (e.g. after a worker crash)."""
         try:
+            key = self._queue_key(board_bits, shape_id)
             self.table.update_item(
-                Key={'board_state': str(board_bits)},
+                Key={'board_state': key},
                 UpdateExpression='SET #s = :pending, updated_at = :now',
                 ExpressionAttributeNames={'#s': 'status'},
                 ExpressionAttributeValues={
