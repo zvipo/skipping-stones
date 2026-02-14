@@ -865,6 +865,13 @@ class SkippingStonesGame {
         document.getElementById('downloadShareBtn').onclick = () => this.downloadShareImage();
         document.getElementById('nativeShareBtn').onclick = () => this.nativeShare();
         document.getElementById('hintBtn').onclick = () => this.toggleHints();
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'h' && !e.ctrlKey && !e.metaKey && !e.altKey
+                && !e.target.closest('input, textarea, select')) {
+                this.toggleHints();
+            }
+        });
     }
 
     renderBoard() {
