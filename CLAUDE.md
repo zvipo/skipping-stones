@@ -23,15 +23,26 @@ python3 tests/test_compression.py
 
 # Deploy with Docker
 ./deploy.sh
+
+# Solve queue CLI (requires AWS credentials)
+python3 solve_queue.py           # solve one pending item
+python3 solve_queue.py --all     # solve all pending items
+python3 solve_queue.py --stats   # show queue statistics
 ```
 
 Tests use a custom runner (not pytest). Some tests (Google login, logout) require the Flask app running on localhost:5000. Compression tests run standalone.
 
 ## Architecture
 
-**Two-file backend:**
-- `app.py` — Flask app with all routes, Google OIDC auth flow (JWT verification against Google's public keys), Flask-Login session management, security headers middleware, and a share image generator (Pillow)
-- `database.py` — DynamoDB client wrapper (`db` singleton) with board/move compression utilities. Compression converts boolean boards to binary strings (`9x9:000...`) achieving 80-90% size reduction. Handles backward compatibility with old uncompressed JSON data.
+**Backend modules:**
+- `app.py` — Flask app with all routes, Google OIDC auth flow (JWT verification against Google's public keys), Flask-Login session management, security headers middleware, hint endpoint (calls solver), and a share image generator (Pillow)
+- `database.py` — DynamoDB client wrapper (`db` singleton) with board/move compression utilities. Compression converts boolean boards to binary strings (`9x9:000...`). Handles backward compatibility with old uncompressed JSON data.
+- `solver.py` — DFS backtracking peg solitaire solver using bitmask representation. The 9x9 board has 45 valid cells (cross shape, four 3x3 corners excluded); each state is a single integer bitmask. Precomputed move table and transposition table (set of failed states) for pruning. Configurable time limit (default 5s).
+- `solver_cache.py` — DynamoDB cache (`solver_cache` singleton) for solver solutions. Keyed by bitmask integer. Supports write-through caching of entire solution paths (every intermediate state along a solved path is also cached). Sentinel values: `"NO_SOLUTION"` (definitively unsolvable), `"QUEUED"` (pending background solve).
+- `solver_queue.py` — DynamoDB queue (`solver_queue` singleton) for board states that timed out. Items have status: pending → solving → solved/failed. Stale "solving" items auto-reset after 1 hour.
+- `solve_queue.py` — CLI utility for processing queued states with multiprocessing support.
+
+**Hint pipeline:** Player clicks Hint → `app.py` checks solver cache → on miss, runs `solver.solve()` with 10s limit → on timeout, enqueues to solver queue and returns "solving in background" → background worker (daemon thread in app or `solve_queue.py` CLI) solves without time limit → result cached for instant future hints.
 
 **Frontend (all in templates/):**
 - `skipping_stones.html` — Contains the entire game engine in vanilla JavaScript (~73KB). Handles board rendering, move validation, drag-and-drop, level selection, and state management via API calls.
@@ -41,12 +52,12 @@ Tests use a custom runner (not pytest). Some tests (Google login, logout) requir
 **Key design decisions:**
 - Authentication is optional — the game is fully playable without login; state saving requires auth
 - Single Gunicorn worker in production to avoid session sharing issues (server-side session state)
-- DynamoDB table auto-creates on first run if it doesn't exist
+- All three DynamoDB tables auto-create on first run if they don't exist
 - All game level configurations (7 levels: Cross, Triangle, Arrow, Diamond, Square, Full Board, etc.) are defined in `/api/skipping-stones/configs` endpoint in `app.py`
 
 ## Environment Variables
 
-Configured via `.env` file (see README.md for full list). Key vars: `SECRET_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, AWS credentials, `DYNAMODB_TABLE_NAME`.
+Configured via `.env` file (see README.md for full list). Key vars: `SECRET_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, AWS credentials, `DYNAMODB_TABLE_NAME`, `SOLVER_CACHE_TABLE_NAME`, `SOLVER_QUEUE_TABLE_NAME`.
 
 ## API Structure
 
@@ -56,5 +67,6 @@ API endpoints under `/api/`:
 - `game-state/save`, `game-state/load`, `game-state/save-all-levels`, `game-state/load-all-levels`, `game-state/complete-level` — Game persistence
 - `auth/status`, `auth/logout`, `auth/refresh-session` — Auth management
 - `skipping-stones/configs` — Level configurations
+- `skipping-stones/hint` — Solver-powered hint (returns next move or status)
 - `user/stats` — User statistics
 - `share/level-completed` — Generates shareable PNG image
