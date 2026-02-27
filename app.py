@@ -465,6 +465,7 @@ def get_game_configs():
             'validCells': [list(cell) for cell in shape['valid_cells']],
             'center': list(shape['center']),
         }
+        shape_data['defaultDiagonals'] = (shape_id == 'diamond')
         if shape_id == 'wiegleb':
             shape_data['levels'] = WIEGLEB_LEVELS
         else:
@@ -490,12 +491,13 @@ def get_game_hint():
     data = request.get_json()
     board = data.get('board')  # boolean array (rows x cols)
     shape_id = data.get('shape_id', 'wiegleb')
+    allow_diagonals = data.get('allow_diagonals', False)
     stone_count = sum(1 for row in board for cell in row if cell)
 
     # Check solver cache first
     bits = _board_to_bits(board, shape_id)
     try:
-        cached = solver_cache.get_solution(bits, shape_id)
+        cached = solver_cache.get_solution(bits, shape_id, allow_diagonals)
         if cached == 'NO_SOLUTION':
             return Response(
                 json.dumps({'type': 'result', 'hint': None, 'no_solution': True}) + '\n',
@@ -521,7 +523,7 @@ def get_game_hint():
     def solver_thread():
         try:
             start = time.monotonic()
-            solution = solve(board, time_limit=time_limit, shape_id=shape_id)
+            solution = solve(board, time_limit=time_limit, shape_id=shape_id, allow_diagonals=allow_diagonals)
             elapsed = time.monotonic() - start
             did_timeout = solution is None and elapsed >= time_limit * 0.9
             q.put(('done', solution, did_timeout))
@@ -544,10 +546,10 @@ def get_game_hint():
                     # Enqueue for background solving (skip if already queued)
                     queued = False
                     try:
-                        existing = solver_cache.get_solution(bits, shape_id)
+                        existing = solver_cache.get_solution(bits, shape_id, allow_diagonals)
                         if existing != 'QUEUED':
-                            solver_queue.enqueue(bits, stone_count, shape_id)
-                            solver_cache.put_queued(bits, stone_count, shape_id)
+                            solver_queue.enqueue(bits, stone_count, shape_id, allow_diagonals)
+                            solver_cache.put_queued(bits, stone_count, shape_id, allow_diagonals)
                         queued = True
                     except Exception:
                         pass
@@ -561,7 +563,7 @@ def get_game_hint():
                 if solution and len(solution) > 0:
                     # Write-through: cache the entire solution path
                     try:
-                        solver_cache.cache_solution_path(bits, solution, stone_count, shape_id)
+                        solver_cache.cache_solution_path(bits, solution, stone_count, shape_id, allow_diagonals)
                     except Exception:
                         pass
                     yield json.dumps({'type': 'result', 'hint': solution[0]}) + '\n'
@@ -569,10 +571,10 @@ def get_game_hint():
                     # Enqueue for background solving (skip if already queued)
                     queued = False
                     try:
-                        existing = solver_cache.get_solution(bits, shape_id)
+                        existing = solver_cache.get_solution(bits, shape_id, allow_diagonals)
                         if existing != 'QUEUED':
-                            solver_queue.enqueue(bits, stone_count, shape_id)
-                            solver_cache.put_queued(bits, stone_count, shape_id)
+                            solver_queue.enqueue(bits, stone_count, shape_id, allow_diagonals)
+                            solver_cache.put_queued(bits, stone_count, shape_id, allow_diagonals)
                         queued = True
                     except Exception:
                         pass
@@ -580,7 +582,7 @@ def get_game_hint():
                 else:
                     # Exhaustive search found no solution — cache negative result
                     try:
-                        solver_cache.put_no_solution(bits, stone_count, shape_id)
+                        solver_cache.put_no_solution(bits, stone_count, shape_id, allow_diagonals)
                     except Exception:
                         pass
                     yield json.dumps({'type': 'result', 'hint': None, 'no_solution': True}) + '\n'
@@ -1053,23 +1055,24 @@ def background_solver_worker():
                 continue
 
             shape_id = item.get('shape_id', 'wiegleb')
+            allow_diagonals = item.get('allow_diagonals', False)
             raw_key = item['board_state']
             bits = int(raw_key.split(':')[-1]) if ':' in raw_key else int(raw_key)
             sc = int(item['stone_count'])
             board = _bits_to_board(bits, shape_id)
-            print(f"[background-solver] Solving queued state: {bits} ({sc} stones, shape={shape_id})")
+            print(f"[background-solver] Solving queued state: {bits} ({sc} stones, shape={shape_id}, diag={allow_diagonals})")
 
             start = time.monotonic()
-            solution = solve(board, time_limit=1800, shape_id=shape_id)
+            solution = solve(board, time_limit=1800, shape_id=shape_id, allow_diagonals=allow_diagonals)
             elapsed = time.monotonic() - start
 
             if solution is not None and len(solution) > 0:
-                solver_cache.cache_solution_path(bits, solution, sc, shape_id)
-                solver_queue.mark_solved(bits, shape_id)
+                solver_cache.cache_solution_path(bits, solution, sc, shape_id, allow_diagonals)
+                solver_queue.mark_solved(bits, shape_id, allow_diagonals)
                 print(f"[background-solver] Solved {bits} in {elapsed:.1f}s ({len(solution)} moves)")
             else:
-                solver_cache.put_no_solution(bits, sc, shape_id)
-                solver_queue.mark_failed(bits, shape_id)
+                solver_cache.put_no_solution(bits, sc, shape_id, allow_diagonals)
+                solver_queue.mark_failed(bits, shape_id, allow_diagonals)
                 print(f"[background-solver] No solution for {bits} ({elapsed:.1f}s)")
         except Exception as e:
             print(f"[background-solver] Error: {e}")
@@ -1077,9 +1080,10 @@ def background_solver_worker():
             try:
                 if item:
                     shape_id = item.get('shape_id', 'wiegleb')
+                    allow_diagonals = item.get('allow_diagonals', False)
                     raw_key = item['board_state']
                     bits = int(raw_key.split(':')[-1]) if ':' in raw_key else int(raw_key)
-                    solver_queue.release(bits, shape_id)
+                    solver_queue.release(bits, shape_id, allow_diagonals)
             except Exception:
                 pass
             time.sleep(5)

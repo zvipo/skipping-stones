@@ -34,10 +34,10 @@ def _signal_handler(signum, frame):
     print(f"\n[pid {os.getpid()}] Received {sig_name}, releasing {len(_active_items)} active item(s)...", flush=True)
     if _active_items:
         from solver_queue import solver_queue
-        for bits, shape_id in list(_active_items):
+        for bits, shape_id, allow_diag in list(_active_items):
             try:
-                solver_queue.release(bits, shape_id)
-                print(f"  Released {bits} (shape={shape_id})", flush=True)
+                solver_queue.release(bits, shape_id, allow_diag)
+                print(f"  Released {bits} (shape={shape_id}, diag={allow_diag})", flush=True)
             except Exception as e:
                 print(f"  Failed to release {bits}: {e}", flush=True)
     sys.exit(1)
@@ -64,32 +64,34 @@ def solve_item(item):
     from solver_queue import solver_queue
 
     shape_id = item.get('shape_id', 'wiegleb')
+    allow_diagonals = item.get('allow_diagonals', False)
     # Parse board_bits from key (may be "shape:bits" or just "bits")
     raw_key = item['board_state']
     bits = int(raw_key.split(':')[-1]) if ':' in raw_key else int(raw_key)
     sc = int(item['stone_count'])
     board = _bits_to_board(bits, shape_id)
 
-    _active_items.append((bits, shape_id))
+    _active_items.append((bits, shape_id, allow_diagonals))
 
-    print(f"[pid {os.getpid()}] Solving state {bits} ({sc} stones, shape={shape_id})...", flush=True)
+    diag_str = ', diag=True' if allow_diagonals else ''
+    print(f"[pid {os.getpid()}] Solving state {bits} ({sc} stones, shape={shape_id}{diag_str})...", flush=True)
     start = time.monotonic()
-    solution = solve(board, time_limit=MAX_SOLVE_TIME, shape_id=shape_id)
+    solution = solve(board, time_limit=MAX_SOLVE_TIME, shape_id=shape_id, allow_diagonals=allow_diagonals)
     elapsed = time.monotonic() - start
 
     if solution is not None and len(solution) > 0:
-        solver_cache.cache_solution_path(bits, solution, sc, shape_id)
-        solver_queue.mark_solved(bits, shape_id)
+        solver_cache.cache_solution_path(bits, solution, sc, shape_id, allow_diagonals)
+        solver_queue.mark_solved(bits, shape_id, allow_diagonals)
         print(f"[pid {os.getpid()}] Solved {bits} in {elapsed:.1f}s — {len(solution)} moves cached.", flush=True)
     else:
-        solver_cache.put_no_solution(bits, sc, shape_id)
-        solver_queue.mark_failed(bits, shape_id)
+        solver_cache.put_no_solution(bits, sc, shape_id, allow_diagonals)
+        solver_queue.mark_failed(bits, shape_id, allow_diagonals)
         if elapsed >= MAX_SOLVE_TIME:
             print(f"[pid {os.getpid()}] Timed out on {bits} after {elapsed:.1f}s. Negative-cached.", flush=True)
         else:
             print(f"[pid {os.getpid()}] No solution for {bits} ({elapsed:.1f}s). Negative-cached.", flush=True)
 
-    _active_items.remove((bits, shape_id))
+    _active_items.remove((bits, shape_id, allow_diagonals))
 
 
 def solve_one():
