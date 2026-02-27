@@ -100,6 +100,11 @@
                     <div id="shapeSelector" class="shape-selector d-flex flex-wrap gap-1">
                         <!-- Shape buttons loaded dynamically -->
                     </div>
+                    <div class="mt-2">
+                        <button id="diagonalBtn" class="btn btn-outline-secondary btn-sm" title="Allow diagonal jumps (D)">
+                            <i class="fas fa-arrows-alt me-1"></i>Diagonal Moves
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -470,6 +475,7 @@ class SkippingStonesGame {
         this.hintsEnabled = false;
         this.currentHint = null;
         this.hintRequestId = 0;
+        this.allowDiagonals = false;
         this.init();
     }
 
@@ -684,6 +690,8 @@ class SkippingStonesGame {
             // Set up initial shape
             this._rebuildValidCellsSet();
             this.configurations = this.shapes[this.currentShape].levels;
+            this.allowDiagonals = this.shapes[this.currentShape].defaultDiagonals || false;
+            this.updateDiagonalButtonState();
             this.board = this.createBoard();
 
             this.renderShapeSelector();
@@ -714,6 +722,8 @@ class SkippingStonesGame {
         this.saveLevelState();
 
         this.currentShape = shapeId;
+        this.allowDiagonals = this.shapes[shapeId].defaultDiagonals || false;
+        this.updateDiagonalButtonState();
         this._rebuildValidCellsSet();
         this.configurations = this.shapes[shapeId].levels;
 
@@ -865,11 +875,14 @@ class SkippingStonesGame {
         document.getElementById('downloadShareBtn').onclick = () => this.downloadShareImage();
         document.getElementById('nativeShareBtn').onclick = () => this.nativeShare();
         document.getElementById('hintBtn').onclick = () => this.toggleHints();
+        document.getElementById('diagonalBtn').onclick = () => this.toggleDiagonals();
 
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'h' && !e.ctrlKey && !e.metaKey && !e.altKey
-                && !e.target.closest('input, textarea, select')) {
+            if (e.ctrlKey || e.metaKey || e.altKey || e.target.closest('input, textarea, select')) return;
+            if (e.key === 'h') {
                 this.toggleHints();
+            } else if (e.key === 'd') {
+                this.toggleDiagonals();
             }
         });
     }
@@ -941,7 +954,9 @@ class SkippingStonesGame {
         const rowDiff = Math.abs(toRow - fromRow);
         const colDiff = Math.abs(toCol - fromCol);
 
-        if ((rowDiff === 2 && colDiff === 0) || (rowDiff === 0 && colDiff === 2)) {
+        const isOrthogonal = (rowDiff === 2 && colDiff === 0) || (rowDiff === 0 && colDiff === 2);
+        const isDiagonal = this.allowDiagonals && rowDiff === 2 && colDiff === 2;
+        if (isOrthogonal || isDiagonal) {
             const jumpRow = fromRow + (toRow - fromRow) / 2;
             const jumpCol = fromCol + (toCol - fromCol) / 2;
 
@@ -1026,7 +1041,10 @@ class SkippingStonesGame {
         for (let i = 0; i < rows; i++) {
             for (let j = 0; j < cols; j++) {
                 if (this.board[i] && this.board[i][j]) {
-                    const directions = [[-2, 0], [2, 0], [0, -2], [0, 2]];
+                    let directions = [[-2, 0], [2, 0], [0, -2], [0, 2]];
+                    if (this.allowDiagonals) {
+                        directions = directions.concat([[-2, -2], [-2, 2], [2, -2], [2, 2]]);
+                    }
                     for (const [dRow, dCol] of directions) {
                         const toRow = i + dRow;
                         const toCol = j + dCol;
@@ -1536,6 +1554,25 @@ class SkippingStonesGame {
         }
     }
 
+    toggleDiagonals() {
+        this.allowDiagonals = !this.allowDiagonals;
+        this.updateDiagonalButtonState();
+        this.cancelHintSolving();
+        this.updateDisplay();
+        this.saveLevelState();
+    }
+
+    updateDiagonalButtonState() {
+        const btn = document.getElementById('diagonalBtn');
+        if (this.allowDiagonals) {
+            btn.classList.remove('btn-outline-secondary');
+            btn.classList.add('btn-secondary');
+        } else {
+            btn.classList.remove('btn-secondary');
+            btn.classList.add('btn-outline-secondary');
+        }
+    }
+
     async fetchHint() {
         if (!this.hintsEnabled) return;
         const requestId = ++this.hintRequestId;
@@ -1547,7 +1584,7 @@ class SkippingStonesGame {
             const response = await fetch('/api/skipping-stones/hint', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ board: this.board, shape_id: this.currentShape })
+                body: JSON.stringify({ board: this.board, shape_id: this.currentShape, allow_diagonals: this.allowDiagonals })
             });
             if (requestId !== this.hintRequestId) return;
             if (!response.ok) {

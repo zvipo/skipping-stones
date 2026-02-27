@@ -20,8 +20,13 @@ from solver import get_solver_data, _board_to_bits, VALID_CELLS, _CELL_INDEX
 load_dotenv()
 
 
-def _cache_key(board_bits: int, shape_id: str = 'wiegleb') -> str:
-    """Build the DynamoDB hash key, prefixed with shape_id for non-wiegleb shapes."""
+def _cache_key(board_bits: int, shape_id: str = 'wiegleb', allow_diagonals: bool = False) -> str:
+    """Build the DynamoDB hash key, prefixed with shape_id for non-wiegleb shapes.
+    When allow_diagonals is True, adds a 'diag:' prefix to differentiate."""
+    if allow_diagonals:
+        if shape_id == 'wiegleb':
+            return f"diag:{board_bits}"
+        return f"diag:{shape_id}:{board_bits}"
     if shape_id == 'wiegleb':
         return str(board_bits)
     return f"{shape_id}:{board_bits}"
@@ -70,7 +75,7 @@ class SolverCache:
             else:
                 raise e
 
-    def get_solution(self, board_bits: int, shape_id: str = 'wiegleb'):
+    def get_solution(self, board_bits: int, shape_id: str = 'wiegleb', allow_diagonals: bool = False):
         """Look up a cached solution by board bitmask.
 
         Returns:
@@ -80,7 +85,7 @@ class SolverCache:
             list        — cached solution moves
         """
         try:
-            key = _cache_key(board_bits, shape_id)
+            key = _cache_key(board_bits, shape_id, allow_diagonals)
             response = self.table.get_item(Key={'board_state': key})
             if 'Item' in response:
                 raw = response['Item']['solution']
@@ -92,10 +97,10 @@ class SolverCache:
             print(f"Solver cache lookup error: {e}")
             return None
 
-    def put_solution(self, board_bits: int, solution: List[Dict], stone_count: int, shape_id: str = 'wiegleb'):
+    def put_solution(self, board_bits: int, solution: List[Dict], stone_count: int, shape_id: str = 'wiegleb', allow_diagonals: bool = False):
         """Store a single solution in the cache."""
         try:
-            key = _cache_key(board_bits, shape_id)
+            key = _cache_key(board_bits, shape_id, allow_diagonals)
             self.table.put_item(Item={
                 'board_state': key,
                 'solution': json.dumps(solution),
@@ -105,10 +110,10 @@ class SolverCache:
         except Exception as e:
             print(f"Solver cache write error: {e}")
 
-    def put_no_solution(self, board_bits: int, stone_count: int, shape_id: str = 'wiegleb'):
+    def put_no_solution(self, board_bits: int, stone_count: int, shape_id: str = 'wiegleb', allow_diagonals: bool = False):
         """Cache that a board state is definitively unsolvable."""
         try:
-            key = _cache_key(board_bits, shape_id)
+            key = _cache_key(board_bits, shape_id, allow_diagonals)
             self.table.put_item(Item={
                 'board_state': key,
                 'solution': 'NO_SOLUTION',
@@ -118,10 +123,10 @@ class SolverCache:
         except Exception as e:
             print(f"Solver cache write error (no_solution): {e}")
 
-    def put_queued(self, board_bits: int, stone_count: int, shape_id: str = 'wiegleb'):
+    def put_queued(self, board_bits: int, stone_count: int, shape_id: str = 'wiegleb', allow_diagonals: bool = False):
         """Cache that a board state has been queued for background solving."""
         try:
-            key = _cache_key(board_bits, shape_id)
+            key = _cache_key(board_bits, shape_id, allow_diagonals)
             self.table.put_item(Item={
                 'board_state': key,
                 'solution': 'QUEUED',
@@ -131,7 +136,7 @@ class SolverCache:
         except Exception as e:
             print(f"Solver cache write error (queued): {e}")
 
-    def cache_solution_path(self, board_bits: int, solution: List[Dict], stone_count: int, shape_id: str = 'wiegleb'):
+    def cache_solution_path(self, board_bits: int, solution: List[Dict], stone_count: int, shape_id: str = 'wiegleb', allow_diagonals: bool = False):
         """Cache every intermediate state along the solution path.
 
         Walks forward through the move list, computing successive bitmask
@@ -145,7 +150,7 @@ class SolverCache:
             with self.table.batch_writer() as batch:
                 for i, move in enumerate(solution):
                     remaining_moves = solution[i:]
-                    key = _cache_key(current_state, shape_id)
+                    key = _cache_key(current_state, shape_id, allow_diagonals)
                     batch.put_item(Item={
                         'board_state': key,
                         'solution': json.dumps(remaining_moves),

@@ -17,12 +17,13 @@ from board_shapes import BOARD_SHAPES
 
 # Directions: (row_delta, col_delta)
 DIRECTIONS = [(-2, 0), (2, 0), (0, -2), (0, 2)]
+DIAGONAL_DIRECTIONS = [(-2, -2), (-2, 2), (2, -2), (2, 2)]
 
-# Per-shape solver data cache: shape_id -> (valid_cells, cell_index, precomputed_moves)
+# Per-shape solver data cache: (shape_id, allow_diagonals) -> (valid_cells, cell_index, precomputed_moves)
 _SOLVER_DATA_CACHE = {}
 
 
-def _build_solver_data(shape_id):
+def _build_solver_data(shape_id, allow_diagonals=False):
     """Build valid_cells list, cell_index dict, and precomputed_moves for a shape."""
     shape = BOARD_SHAPES[shape_id]
     valid_cells = shape['valid_cells']
@@ -32,12 +33,13 @@ def _build_solver_data(shape_id):
     for i, (r, c) in enumerate(valid_cells):
         cell_index[(r, c)] = i
 
+    directions = DIRECTIONS + DIAGONAL_DIRECTIONS if allow_diagonals else DIRECTIONS
     precomputed_moves = []
     for r, c in valid_cells:
-        for dr, dc in DIRECTIONS:
+        for dr, dc in directions:
             to_r, to_c = r + dr, c + dc
             jump_r, jump_c = r + dr // 2, c + dc // 2
-            if (to_r, to_c) in valid_set:
+            if (to_r, to_c) in valid_set and (jump_r, jump_c) in valid_set:
                 from_bit = 1 << cell_index[(r, c)]
                 to_bit = 1 << cell_index[(to_r, to_c)]
                 jump_bit = 1 << cell_index[(jump_r, jump_c)]
@@ -49,11 +51,12 @@ def _build_solver_data(shape_id):
     return valid_cells, cell_index, precomputed_moves
 
 
-def get_solver_data(shape_id='wiegleb'):
+def get_solver_data(shape_id='wiegleb', allow_diagonals=False):
     """Get (valid_cells, cell_index, precomputed_moves) for a shape, with lazy caching."""
-    if shape_id not in _SOLVER_DATA_CACHE:
-        _SOLVER_DATA_CACHE[shape_id] = _build_solver_data(shape_id)
-    return _SOLVER_DATA_CACHE[shape_id]
+    key = (shape_id, allow_diagonals)
+    if key not in _SOLVER_DATA_CACHE:
+        _SOLVER_DATA_CACHE[key] = _build_solver_data(shape_id, allow_diagonals)
+    return _SOLVER_DATA_CACHE[key]
 
 
 # Legacy Wiegleb aliases for backward compatibility (used by solver_cache.py etc.)
@@ -98,15 +101,16 @@ def _bits_to_board(bits, shape_id='wiegleb'):
     return board
 
 
-def get_all_valid_moves(board, shape_id='wiegleb'):
+def get_all_valid_moves(board, shape_id='wiegleb', allow_diagonals=False):
     """Returns all legal moves as list of dicts."""
     valid_cells, _, _ = get_solver_data(shape_id)
     valid_set = set(valid_cells)
+    directions = DIRECTIONS + DIAGONAL_DIRECTIONS if allow_diagonals else DIRECTIONS
     moves = []
     for r, c in valid_cells:
         if not board[r][c]:
             continue
-        for dr, dc in DIRECTIONS:
+        for dr, dc in directions:
             to_r, to_c = r + dr, c + dc
             jump_r, jump_c = r + dr // 2, c + dc // 2
             if ((to_r, to_c) in valid_set
@@ -123,7 +127,7 @@ def get_all_valid_moves(board, shape_id='wiegleb'):
     return moves
 
 
-def solve(board, time_limit=5.0, progress_callback=None, shape_id='wiegleb'):
+def solve(board, time_limit=5.0, progress_callback=None, shape_id='wiegleb', allow_diagonals=False):
     """
     DFS backtracking solver with transposition table using bitmask representation.
 
@@ -131,7 +135,7 @@ def solve(board, time_limit=5.0, progress_callback=None, shape_id='wiegleb'):
     Includes a configurable time limit (default 5 seconds).
     Optional progress_callback(current, total) is called after each top-level branch.
     """
-    valid_cells, cell_index, precomputed_moves = get_solver_data(shape_id)
+    valid_cells, cell_index, precomputed_moves = get_solver_data(shape_id, allow_diagonals)
     state = _board_to_bits(board, shape_id)
     stone_count = bin(state).count('1')
 
@@ -217,9 +221,9 @@ def solve(board, time_limit=5.0, progress_callback=None, shape_id='wiegleb'):
     return None
 
 
-def get_hint(board, shape_id='wiegleb'):
+def get_hint(board, shape_id='wiegleb', allow_diagonals=False):
     """Convenience function: calls solve(), returns the first move or None."""
-    solution = solve(board, shape_id=shape_id)
+    solution = solve(board, shape_id=shape_id, allow_diagonals=allow_diagonals)
     if solution and len(solution) > 0:
         return solution[0]
     return None

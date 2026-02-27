@@ -28,6 +28,7 @@ python3 tests/test_compression.py
 python3 solve_queue.py           # solve one pending item
 python3 solve_queue.py --all     # solve all pending items
 python3 solve_queue.py --stats   # show queue statistics
+python3 solve_queue.py --cleanup # remove solved/failed items from queue
 ```
 
 Tests use a custom runner (not pytest). Some tests (Google login, logout) require the Flask app running on localhost:5000. Compression tests run standalone.
@@ -36,9 +37,10 @@ Tests use a custom runner (not pytest). Some tests (Google login, logout) requir
 
 **Backend modules:**
 - `app.py` — Flask app with all routes, Google OIDC auth flow (JWT verification against Google's public keys), Flask-Login session management, security headers middleware, hint endpoint (calls solver), and a share image generator (Pillow)
+- `board_shapes.py` — Single source of truth for all board geometries. Defines 5 shapes (Wiegleb, English, European, Asymmetrical, Diamond) with grid dimensions, valid cell positions, and center cell. `SHAPE_ORDER` controls display order. Level configurations in `app.py` reference these shapes by ID.
 - `database.py` — DynamoDB client wrapper (`db` singleton) with board/move compression utilities. Compression converts boolean boards to binary strings (`9x9:000...`). Handles backward compatibility with old uncompressed JSON data.
-- `solver.py` — DFS backtracking peg solitaire solver using bitmask representation. The 9x9 board has 45 valid cells (cross shape, four 3x3 corners excluded); each state is a single integer bitmask. Precomputed move table and transposition table (set of failed states) for pruning. Configurable time limit (default 5s).
-- `solver_cache.py` — DynamoDB cache (`solver_cache` singleton) for solver solutions. Keyed by bitmask integer. Supports write-through caching of entire solution paths (every intermediate state along a solved path is also cached). Sentinel values: `"NO_SOLUTION"` (definitively unsolvable), `"QUEUED"` (pending background solve).
+- `solver.py` — DFS backtracking peg solitaire solver using bitmask representation. Supports multiple board shapes via `shape_id` parameter (defaults to `'wiegleb'`). Per-shape solver data (valid cells, cell index, precomputed moves) is lazily built and cached in `_SOLVER_DATA_CACHE`. Each board state is a single integer bitmask. Transposition table (set of failed bitmask states) for pruning. Configurable time limit (default 5s). `DIRECTIONS` currently supports only orthogonal moves: up, down, left, right.
+- `solver_cache.py` — DynamoDB cache (`solver_cache` singleton) for solver solutions. Keys are bitmask integers for Wiegleb, or `"{shape_id}:{bitmask}"` for other shapes. Supports write-through caching of entire solution paths (every intermediate state along a solved path is also cached). Sentinel values: `"NO_SOLUTION"` (definitively unsolvable), `"QUEUED"` (pending background solve).
 - `solver_queue.py` — DynamoDB queue (`solver_queue` singleton) for board states that timed out. Items have status: pending → solving → solved/failed. Stale "solving" items auto-reset after 1 hour.
 - `solve_queue.py` — CLI utility for processing queued states with multiprocessing support.
 
@@ -53,7 +55,7 @@ Tests use a custom runner (not pytest). Some tests (Google login, logout) requir
 - Authentication is optional — the game is fully playable without login; state saving requires auth
 - Single Gunicorn worker in production to avoid session sharing issues (server-side session state)
 - All three DynamoDB tables auto-create on first run if they don't exist
-- All game level configurations (7 levels: Cross, Triangle, Arrow, Diamond, Square, Full Board, etc.) are defined in `/api/skipping-stones/configs` endpoint in `app.py`
+- Level configurations are defined in the `/api/skipping-stones/configs` endpoint in `app.py`, referencing board shapes from `board_shapes.py`
 
 ## Environment Variables
 

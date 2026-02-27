@@ -49,23 +49,29 @@ class SolverQueue:
             else:
                 raise e
 
-    def _queue_key(self, board_bits: int, shape_id: str = 'wiegleb') -> str:
-        """Build the DynamoDB hash key, prefixed with shape_id for non-wiegleb shapes."""
+    def _queue_key(self, board_bits: int, shape_id: str = 'wiegleb', allow_diagonals: bool = False) -> str:
+        """Build the DynamoDB hash key, prefixed with shape_id for non-wiegleb shapes.
+        When allow_diagonals is True, adds a 'diag:' prefix to differentiate."""
+        if allow_diagonals:
+            if shape_id == 'wiegleb':
+                return f"diag:{board_bits}"
+            return f"diag:{shape_id}:{board_bits}"
         if shape_id == 'wiegleb':
             return str(board_bits)
         return f"{shape_id}:{board_bits}"
 
-    def enqueue(self, board_bits: int, stone_count: int, shape_id: str = 'wiegleb'):
+    def enqueue(self, board_bits: int, stone_count: int, shape_id: str = 'wiegleb', allow_diagonals: bool = False):
         """Add a board state to the queue. Idempotent — only writes if the
         item doesn't exist or is in pending/failed status."""
         now = datetime.now().isoformat()
-        key = self._queue_key(board_bits, shape_id)
+        key = self._queue_key(board_bits, shape_id, allow_diagonals)
         try:
             self.table.put_item(
                 Item={
                     'board_state': key,
                     'stone_count': stone_count,
                     'shape_id': shape_id,
+                    'allow_diagonals': allow_diagonals,
                     'status': 'pending',
                     'created_at': now,
                     'updated_at': now,
@@ -103,10 +109,11 @@ class SolverQueue:
                 age = (cutoff - item_time).total_seconds()
                 if age > max_age_seconds:
                     item_shape = item.get('shape_id', 'wiegleb')
+                    item_diag = item.get('allow_diagonals', False)
                     # Parse board_bits from key (may be "shape:bits" or just "bits")
                     raw_key = item['board_state']
                     item_bits = int(raw_key.split(':')[-1]) if ':' in raw_key else int(raw_key)
-                    self.release(item_bits, item_shape)
+                    self.release(item_bits, item_shape, item_diag)
                     reset_count += 1
             if reset_count > 0:
                 print(f"Solver queue: reset {reset_count} stale item(s) to pending.")
@@ -221,26 +228,26 @@ class SolverQueue:
             print(f"Solver queue claim error: {e}")
             return None
 
-    def mark_solved(self, board_bits: int, shape_id: str = 'wiegleb'):
+    def mark_solved(self, board_bits: int, shape_id: str = 'wiegleb', allow_diagonals: bool = False):
         """Remove a solved item from the queue (result is in the solver cache)."""
         try:
-            key = self._queue_key(board_bits, shape_id)
+            key = self._queue_key(board_bits, shape_id, allow_diagonals)
             self.table.delete_item(Key={'board_state': key})
         except Exception as e:
             print(f"Solver queue mark_solved error: {e}")
 
-    def mark_failed(self, board_bits: int, shape_id: str = 'wiegleb'):
+    def mark_failed(self, board_bits: int, shape_id: str = 'wiegleb', allow_diagonals: bool = False):
         """Remove a failed item from the queue (negative result is in the solver cache)."""
         try:
-            key = self._queue_key(board_bits, shape_id)
+            key = self._queue_key(board_bits, shape_id, allow_diagonals)
             self.table.delete_item(Key={'board_state': key})
         except Exception as e:
             print(f"Solver queue mark_failed error: {e}")
 
-    def release(self, board_bits: int, shape_id: str = 'wiegleb'):
+    def release(self, board_bits: int, shape_id: str = 'wiegleb', allow_diagonals: bool = False):
         """Reset a queue item back to pending (e.g. after a worker crash)."""
         try:
-            key = self._queue_key(board_bits, shape_id)
+            key = self._queue_key(board_bits, shape_id, allow_diagonals)
             self.table.update_item(
                 Key={'board_state': key},
                 UpdateExpression='SET #s = :pending, updated_at = :now',
