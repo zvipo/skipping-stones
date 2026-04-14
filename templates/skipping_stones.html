@@ -100,9 +100,15 @@
                     <div id="shapeSelector" class="shape-selector d-flex flex-wrap gap-1">
                         <!-- Shape buttons loaded dynamically -->
                     </div>
-                    <div class="mt-2">
-                        <button id="diagonalBtn" class="btn btn-outline-secondary btn-sm" title="Allow diagonal jumps (D)">
-                            <i class="fas fa-arrows-alt me-1"></i>Diagonal Moves
+                    <div class="diagonal-toggle-row mt-3">
+                        <button id="diagonalBtn" class="diagonal-toggle" role="switch" aria-checked="false" title="Allow diagonal jumps (D)">
+                            <span class="diagonal-toggle-label">
+                                <i class="fas fa-arrows-alt me-1"></i>Diagonal moves
+                            </span>
+                            <span class="diagonal-toggle-track" aria-hidden="true">
+                                <span class="diagonal-toggle-thumb"></span>
+                            </span>
+                            <span class="diagonal-toggle-state">OFF</span>
                         </button>
                     </div>
                 </div>
@@ -206,24 +212,29 @@
 }
 
 .level-badge {
-    background: linear-gradient(135deg, #007bff, #0056b3);
-    color: white;
-    padding: 10px 20px;
-    border-radius: 25px;
-    font-weight: bold;
-    font-size: 1.2em;
-    box-shadow: 0 4px 12px rgba(0, 123, 255, 0.4);
+    background: linear-gradient(135deg, var(--accent), var(--accent-deep));
+    color: #fbf7ef;
+    padding: 10px 22px;
+    border-radius: var(--radius-pill);
+    font-family: 'Fraunces', Georgia, serif;
+    font-weight: 600;
+    font-size: 1.15em;
+    letter-spacing: 0.01em;
+    box-shadow: 0 2px 8px rgba(143, 166, 142, 0.35);
     display: inline-block;
-    border: 2px solid rgba(255, 255, 255, 0.3);
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.4);
 }
 
 .game-board {
     display: grid;
     gap: 2px;
-    background: #ddd;
-    padding: 10px;
-    border-radius: 8px;
+    background: var(--surface-2);
+    padding: 16px;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--line);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6),
+                0 1px 2px rgba(61, 55, 48, 0.06),
+                0 8px 24px rgba(61, 55, 48, 0.06);
     max-width: 500px;
     width: 100%;
     margin: 0 auto;
@@ -231,131 +242,272 @@
 
 .cell {
     aspect-ratio: 1;
-    border: 1px solid #999;
+    border: none;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    transition: all 0.2s;
-    background: #f8f9fa;
+    transition: transform 0.25s ease;
+    background: transparent;
+    border-radius: 50%;
     font-size: clamp(0.6em, 2.5vw, 1em);
+    color: transparent;
+    position: relative;
 }
 
-.cell:hover {
-    background: #e9ecef;
+.cell::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 60%;
+    height: 60%;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    background: radial-gradient(circle at 50% 45%, rgba(61, 55, 48, 0.18) 0%, rgba(61, 55, 48, 0.08) 55%, transparent 80%);
+    box-shadow: inset 0 2px 3px rgba(61, 55, 48, 0.22),
+                inset 0 -1px 1px rgba(255, 255, 255, 0.55);
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+}
+
+.cell:hover::before {
+    background: radial-gradient(circle at 50% 45%, rgba(61, 55, 48, 0.24) 0%, rgba(61, 55, 48, 0.1) 55%, transparent 80%);
+}
+
+.cell.marble::before,
+.cell.hint-source::before {
+    display: none;
 }
 
 .cell.marble {
-    background: #007bff;
+    background: transparent;
+    color: transparent;
+}
+.cell.marble::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 82%;
+    aspect-ratio: 1;
+    transform: translate(-50%, -50%);
     border-radius: 50%;
-    color: white;
-    font-weight: bold;
+    background: radial-gradient(circle at 35% 28%, var(--stone-hi) 0%, var(--stone) 45%, var(--stone-lo) 100%);
+    box-shadow: var(--shadow-stone);
+    pointer-events: none;
+}
+.cell.marble:hover::after {
+    background: radial-gradient(circle at 35% 28%, #bac0c7 0%, #858b94 45%, var(--stone-lo) 100%);
 }
 
-.cell.selected {
-    background: #28a745;
-    border: 2px solid #20c997;
-    animation: selected-pulse 1.5s ease-in-out infinite;
+.cell.selected::after {
+    background: radial-gradient(circle at 35% 28%, #c4d1bf 0%, var(--stone-selected) 50%, #5f7560 100%);
+    box-shadow: var(--shadow-stone), 0 0 0 3px rgba(143, 166, 142, 0.35);
+    animation: selected-pulse 2s ease-in-out infinite;
 }
 
 @keyframes selected-pulse {
     0%, 100% {
-        transform: scale(1);
-        box-shadow: 0 0 4px rgba(40, 167, 69, 0.4);
+        box-shadow: var(--shadow-stone), 0 0 0 3px rgba(143, 166, 142, 0.3);
     }
     50% {
-        transform: scale(1.08);
-        box-shadow: 0 0 12px rgba(40, 167, 69, 0.7);
+        box-shadow: var(--shadow-stone), 0 0 0 6px rgba(143, 166, 142, 0.45);
     }
 }
 
 .cell.valid-move {
-    background: #ffc107;
-    border: 2px solid #fd7e14;
+    background: transparent;
+    border: none;
+}
+.cell.valid-move::before {
+    background: radial-gradient(circle at 50% 45%, rgba(217, 179, 138, 0.85) 0%, rgba(217, 179, 138, 0.45) 55%, transparent 80%);
+    box-shadow: inset 0 2px 3px rgba(168, 120, 72, 0.35),
+                inset 0 -1px 1px rgba(255, 255, 255, 0.55),
+                0 0 0 2px rgba(217, 179, 138, 0.35);
 }
 
 .cell.invalid {
-    background-color: #6c757d !important;
-    cursor: not-allowed !important;
-    opacity: 0.6 !important;
-    border-color: #495057 !important;
+    background-color: transparent !important;
+    cursor: default !important;
+    opacity: 0 !important;
+    pointer-events: none;
 }
 
 .cell.hint-source {
-    background: #e83e8c !important;
-    border: 2px solid #c2185b !important;
-    animation: hint-pulse 1.5s ease-in-out infinite;
+    background: transparent !important;
+}
+.cell.hint-source::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 82%;
+    aspect-ratio: 1;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 28%, #e9b0a0 0%, var(--accent-warm) 50%, var(--accent-warm-deep) 100%);
+    box-shadow: var(--shadow-stone), 0 0 0 3px rgba(201, 123, 99, 0.35);
+    animation: hint-pulse 2.2s ease-in-out infinite;
+    pointer-events: none;
 }
 
 .cell.hint-destination {
-    background: #f8f9fa;
-    border: 3px dashed #e83e8c !important;
-    animation: hint-pulse 1.5s ease-in-out infinite;
+    background: transparent !important;
+    border: none !important;
+}
+.cell.hint-destination::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 70%;
+    aspect-ratio: 1;
+    transform: translate(-50%, -50%);
+    border: 2.5px dashed var(--accent-warm);
+    border-radius: 50%;
+    animation: hint-pulse 2.2s ease-in-out infinite;
+    pointer-events: none;
 }
 
 @keyframes hint-pulse {
-    0%, 100% {
-        transform: scale(1);
-        box-shadow: 0 0 4px rgba(232, 62, 140, 0.4);
-    }
-    50% {
-        transform: scale(1.08);
-        box-shadow: 0 0 12px rgba(232, 62, 140, 0.7);
-    }
+    0%, 100% { opacity: 0.85; }
+    50% { opacity: 1; }
 }
 
 .shape-selector .shape-btn {
     padding: 6px 14px;
-    border: 2px solid #dee2e6;
-    border-radius: 20px;
+    border: 1.5px solid var(--line);
+    border-radius: var(--radius-pill);
     cursor: pointer;
-    transition: all 0.2s;
-    background: #f8f9fa;
+    transition: all 0.25s ease;
+    background: var(--surface);
+    color: var(--ink-soft);
     font-size: 0.85em;
-    font-weight: 500;
+    font-weight: 600;
 }
 
 .shape-selector .shape-btn:hover {
-    border-color: #007bff;
-    background: #e7f1ff;
+    border-color: var(--accent);
+    background: var(--surface-2);
+    color: var(--ink);
 }
 
 .shape-selector .shape-btn.active {
-    background: #343a40;
-    color: white;
-    border-color: #343a40;
+    background: var(--ink);
+    color: var(--surface);
+    border-color: var(--ink);
+}
+
+.diagonal-toggle-row {
+    display: flex;
+    justify-content: flex-start;
+    padding: 2px 4px 0;
+}
+.diagonal-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 8px 12px;
+    background: var(--surface);
+    border: 1.5px solid var(--line);
+    border-radius: var(--radius-pill);
+    color: var(--ink-soft);
+    font-size: 0.85em;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    font-family: inherit;
+}
+.diagonal-toggle:hover {
+    background: var(--surface-2);
+    border-color: var(--ink-soft);
+    color: var(--ink);
+}
+.diagonal-toggle-label {
+    flex: 1;
+    text-align: left;
+    white-space: nowrap;
+}
+.diagonal-toggle-track {
+    position: relative;
+    display: inline-block;
+    width: 34px;
+    height: 18px;
+    background: var(--line);
+    border-radius: 999px;
+    transition: background 0.25s ease;
+    flex-shrink: 0;
+}
+.diagonal-toggle-thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 14px;
+    height: 14px;
+    background: var(--surface);
+    border-radius: 50%;
+    box-shadow: 0 1px 2px rgba(61, 55, 48, 0.25);
+    transition: left 0.25s ease, background 0.25s ease;
+}
+.diagonal-toggle-state {
+    font-size: 0.72em;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--ink-soft);
+    min-width: 26px;
+    text-align: right;
+}
+.diagonal-toggle.on {
+    background: #f0f4ed;
+    border-color: var(--accent);
+    color: var(--ink);
+}
+.diagonal-toggle.on .diagonal-toggle-track {
+    background: var(--accent);
+}
+.diagonal-toggle.on .diagonal-toggle-thumb {
+    left: 18px;
+    background: #fbf7ef;
+}
+.diagonal-toggle.on .diagonal-toggle-state {
+    color: var(--accent-deep);
 }
 
 .config-item {
-    padding: 10px;
-    margin: 5px 0;
-    border: 1px solid #dee2e6;
-    border-radius: 5px;
+    padding: 10px 12px;
+    margin: 6px 0;
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--line);
+    border-radius: var(--radius-md);
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.25s ease;
+    background: var(--surface);
+    color: var(--ink);
 }
 
 .config-item:hover {
-    background: #f8f9fa;
-    border-color: #007bff;
+    background: var(--surface-2);
+    border-left-color: var(--accent);
 }
 
 .config-item.active {
-    background: #007bff;
-    color: white;
-    border-color: #0056b3;
-    box-shadow: 0 2px 8px rgba(0, 123, 255, 0.3);
-    transform: translateY(-1px);
+    background: var(--surface-2);
+    color: var(--ink);
+    border-color: var(--line);
+    border-left: 3px solid var(--accent-deep);
+    box-shadow: var(--shadow-soft);
 }
 
 .config-item.completed {
-    border-color: #28a745;
-    background: #f8fff9;
+    border-left: 3px solid var(--accent);
+    background: #f3f0e3;
 }
 
 .config-item.completed:hover {
-    background: #e8f5e8;
-    border-color: #20c997;
+    background: #ede8d6;
+    border-left-color: var(--accent-deep);
 }
 
 .move-history {
@@ -364,11 +516,12 @@
 }
 
 .move-item {
-    padding: 5px;
-    margin: 2px 0;
-    background: #f8f9fa;
-    border-radius: 3px;
+    padding: 6px 8px;
+    margin: 3px 0;
+    background: var(--surface-2);
+    border-radius: var(--radius-md);
     font-size: 0.9em;
+    color: var(--ink);
 }
 
 @media (max-width: 768px) {
@@ -378,77 +531,30 @@
 }
 
 .btn:disabled {
-    opacity: 0.6;
+    opacity: 0.5;
     cursor: not-allowed;
 }
 
-/* Game Board Login Button Styling */
+/* Game Board Login Button — calm warm style */
 .google-login-game-btn {
-    background: linear-gradient(135deg, #007bff, #0056b3) !important;
-    background-size: 200% 200% !important;
-    animation: blue-gradient-game 3s ease infinite !important;
-    color: white !important;
-    border: none !important;
-    box-shadow: 0 6px 20px rgba(0, 123, 255, 0.5) !important;
-    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
-    position: relative !important;
-    overflow: hidden !important;
+    background: var(--accent) !important;
+    color: #fbf7ef !important;
+    border: 1.5px solid var(--accent) !important;
+    border-radius: var(--radius-pill) !important;
+    box-shadow: var(--shadow-soft) !important;
+    transition: all 0.25s ease !important;
     font-weight: 600 !important;
-    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.4) !important;
-}
-
-.google-login-game-btn::before {
-    content: '' !important;
-    position: absolute !important;
-    top: 0 !important;
-    left: -100% !important;
-    width: 100% !important;
-    height: 100% !important;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent) !important;
-    transition: left 0.6s ease !important;
 }
 
 .google-login-game-btn:hover {
-    transform: translateY(-2px) scale(1.03) !important;
-    box-shadow: 0 10px 30px rgba(0, 123, 255, 0.7) !important;
-    background-size: 150% 150% !important;
-}
-
-.google-login-game-btn:hover::before {
-    left: 100% !important;
-}
-
-.google-login-game-btn:active {
-    transform: translateY(0) scale(1.01) !important;
-    box-shadow: 0 4px 15px rgba(0, 123, 255, 0.6) !important;
-}
-
-@keyframes blue-gradient-game {
-    0% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
-    100% { background-position: 0% 50%; }
+    background: var(--accent-deep) !important;
+    border-color: var(--accent-deep) !important;
+    transform: translateY(-1px) !important;
 }
 
 .google-login-game-btn .fab.fa-google {
-    background: linear-gradient(135deg, #4285f4, #34a853, #fbbc05, #ea4335) !important;
-    background-size: 200% 200% !important;
-    -webkit-background-clip: text !important;
-    -webkit-text-fill-color: transparent !important;
-    background-clip: text !important;
-    animation: google-icon-pulse 2s ease-in-out infinite !important;
-    font-size: 1.1em !important;
-    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3)) !important;
-}
-
-@keyframes google-icon-pulse {
-    0%, 100% {
-        background-size: 200% 200%;
-        transform: scale(1);
-    }
-    50% {
-        background-size: 150% 150%;
-        transform: scale(1.1);
-    }
+    color: #fbf7ef !important;
+    font-size: 1.05em !important;
 }
 </style>
 
@@ -476,6 +582,7 @@ class SkippingStonesGame {
         this.currentHint = null;
         this.hintRequestId = 0;
         this.allowDiagonals = false;
+        this.diagonalsByShape = {};
         this.init();
     }
 
@@ -507,6 +614,7 @@ class SkippingStonesGame {
         const sessionData = {
             levelStates: this.levelStates,
             currentShape: this.currentShape,
+            diagonalsByShape: this.diagonalsByShape,
             timestamp: Date.now(),
             userEmail: this.userEmail || 'anonymous'
         };
@@ -649,6 +757,9 @@ class SkippingStonesGame {
                             this.clearSessionStorage();
                         } else {
                             this.levelStates = sessionData.levelStates || {};
+                            if (sessionData.diagonalsByShape) {
+                                this.diagonalsByShape = sessionData.diagonalsByShape;
+                            }
                             // Restore shape from session
                             if (sessionData.currentShape && this.shapes[sessionData.currentShape]) {
                                 this.currentShape = sessionData.currentShape;
@@ -657,6 +768,8 @@ class SkippingStonesGame {
                                 this.renderShapeSelector();
                                 this.renderConfigurations();
                             }
+                            this.allowDiagonals = this._getShapeDiagonalPreference(this.currentShape);
+                            this.updateDiagonalButtonState();
                         }
                     } catch (error) {
                         console.error('Error loading level states:', error);
@@ -690,7 +803,7 @@ class SkippingStonesGame {
             // Set up initial shape
             this._rebuildValidCellsSet();
             this.configurations = this.shapes[this.currentShape].levels;
-            this.allowDiagonals = this.shapes[this.currentShape].defaultDiagonals || false;
+            this.allowDiagonals = this._getShapeDiagonalPreference(this.currentShape);
             this.updateDiagonalButtonState();
             this.board = this.createBoard();
 
@@ -722,7 +835,7 @@ class SkippingStonesGame {
         this.saveLevelState();
 
         this.currentShape = shapeId;
-        this.allowDiagonals = this.shapes[shapeId].defaultDiagonals || false;
+        this.allowDiagonals = this._getShapeDiagonalPreference(shapeId);
         this.updateDiagonalButtonState();
         this._rebuildValidCellsSet();
         this.configurations = this.shapes[shapeId].levels;
@@ -1261,6 +1374,7 @@ class SkippingStonesGame {
                 completedLevels: this.completedLevels,
                 currentConfig: this.currentConfig,
                 currentShape: this.currentShape,
+                diagonalsByShape: this.diagonalsByShape,
                 board: this.board,
                 moveHistory: this.moveHistory,
                 timestamp: Date.now()
@@ -1285,6 +1399,9 @@ class SkippingStonesGame {
                     this.currentConfig = gameState.currentConfig || 'level1';
                     this.board = gameState.board || [];
                     this.moveHistory = gameState.moveHistory || [];
+                    if (gameState.diagonalsByShape) {
+                        this.diagonalsByShape = gameState.diagonalsByShape;
+                    }
 
                     // Restore shape
                     if (gameState.currentShape && this.shapes[gameState.currentShape]) {
@@ -1294,6 +1411,8 @@ class SkippingStonesGame {
                         this.renderShapeSelector();
                         this.renderConfigurations();
                     }
+                    this.allowDiagonals = this._getShapeDiagonalPreference(this.currentShape);
+                    this.updateDiagonalButtonState();
 
                     console.log('Restored game state from localStorage backup');
                     this.updateDisplay();
@@ -1556,20 +1675,32 @@ class SkippingStonesGame {
 
     toggleDiagonals() {
         this.allowDiagonals = !this.allowDiagonals;
+        this.diagonalsByShape[this.currentShape] = this.allowDiagonals;
         this.updateDiagonalButtonState();
         this.cancelHintSolving();
         this.updateDisplay();
         this.saveLevelState();
     }
 
+    _getShapeDiagonalPreference(shapeId) {
+        if (Object.prototype.hasOwnProperty.call(this.diagonalsByShape, shapeId)) {
+            return this.diagonalsByShape[shapeId];
+        }
+        return this.shapes[shapeId].defaultDiagonals || false;
+    }
+
     updateDiagonalButtonState() {
         const btn = document.getElementById('diagonalBtn');
+        if (!btn) return;
+        const stateEl = btn.querySelector('.diagonal-toggle-state');
         if (this.allowDiagonals) {
-            btn.classList.remove('btn-outline-secondary');
-            btn.classList.add('btn-secondary');
+            btn.classList.add('on');
+            btn.setAttribute('aria-checked', 'true');
+            if (stateEl) stateEl.textContent = 'ON';
         } else {
-            btn.classList.remove('btn-secondary');
-            btn.classList.add('btn-outline-secondary');
+            btn.classList.remove('on');
+            btn.setAttribute('aria-checked', 'false');
+            if (stateEl) stateEl.textContent = 'OFF';
         }
     }
 
