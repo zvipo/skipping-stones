@@ -5,6 +5,7 @@ ENV PYTHONUNBUFFERED=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         gcc \
+        pkg-config \
         libffi-dev \
         libssl-dev \
         libjpeg62-turbo-dev \
@@ -18,7 +19,9 @@ WORKDIR /app
 
 COPY requirements.txt /app/
 
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir \
+        --extra-index-url https://www.piwheels.org/simple \
+        -r requirements.txt
 
 COPY . /app/
 
