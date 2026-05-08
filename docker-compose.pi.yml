@@ -1,0 +1,37 @@
+services:
+  app:
+    build: .
+    container_name: skippingstones
+    env_file: .env
+    expose:
+      - "5000"
+    restart: unless-stopped
+    networks:
+      - web
+    volumes:
+      - ./logs:/app/logs
+
+  caddy:
+    image: caddy:2
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DUCKDNS_HOSTNAME=${DUCKDNS_HOSTNAME}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - web
+    depends_on:
+      - app
+
+networks:
+  web:
+
+volumes:
+  caddy_data:
+  caddy_config:
