@@ -14,6 +14,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libtiff6 \
         libwebp7 \
         libfreetype6 \
+        libxcb1 \
+        liblcms2-2 \
+        libharfbuzz0b \
+        libfribidi0 \
+        libimagequant0 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd -g 1000 appuser \
