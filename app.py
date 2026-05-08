@@ -99,7 +99,12 @@ def record_traffic():
         return
     if any(path.startswith(p) for p in TRAFFIC_SKIP_PREFIXES):
         return
-    user_id = current_user.id if current_user.is_authenticated else None
+    # Read user id from the signed Flask session rather than current_user — the
+    # latter goes anonymous after restarts because users_db is in-memory and the
+    # user_loader can't reconstitute the User. The session's _user_id is set by
+    # Flask-Login on login and cleared on logout, and the signed cookie is
+    # tamper-resistant under SECRET_KEY.
+    user_id = session.get('_user_id')
     try:
         traffic_stats.record_request(DEPLOY_NAME, user_id)
     except Exception as e:
