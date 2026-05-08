@@ -10,6 +10,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libssl-dev \
         libjpeg62-turbo-dev \
         zlib1g-dev \
+        libopenjp2-7 \
+        libtiff6 \
+        libwebp7 \
+        libfreetype6 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd -g 1000 appuser \
