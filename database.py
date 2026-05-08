@@ -460,4 +460,79 @@ class GameStateDB:
             }
 
 # Create a global instance
-db = GameStateDB() 
+db = GameStateDB()
+
+
+class TrafficStatsDB:
+    """Per-instance per-day request counter, used to compare load across deployments
+    (e.g., Render vs the self-hosted Pi). Counters use atomic DynamoDB ADD so concurrent
+    requests don't lose updates. Authenticated user IDs are accumulated as a string set
+    so we can report unique-user counts in addition to raw request counts."""
+
+    def __init__(self):
+        self.dynamodb = boto3.resource('dynamodb')
+        self.table_name = os.getenv('TRAFFIC_TABLE_NAME', 'skipping-stones-traffic')
+        self.table = self.dynamodb.Table(self.table_name)
+
+    def create_table_if_not_exists(self):
+        try:
+            self.table.load()
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'ResourceNotFoundException':
+                self.table = self.dynamodb.create_table(
+                    TableName=self.table_name,
+                    KeySchema=[{'AttributeName': 'instance_date', 'KeyType': 'HASH'}],
+                    AttributeDefinitions=[{'AttributeName': 'instance_date', 'AttributeType': 'S'}],
+                    BillingMode='PAY_PER_REQUEST',
+                )
+                self.table.meta.client.get_waiter('table_exists').wait(TableName=self.table_name)
+            else:
+                raise e
+
+    def record_request(self, instance: str, user_id: Optional[str] = None) -> None:
+        date = datetime.utcnow().strftime('%Y-%m-%d')
+        key = f"{instance}#{date}"
+        add_clauses = ["requests :one"]
+        values = {':one': 1, ':now': datetime.utcnow().isoformat()}
+        if user_id:
+            add_clauses.append("users :u")
+            values[':u'] = {user_id}
+        update_expr = "ADD " + ", ".join(add_clauses) + " SET last_request_at = :now"
+        try:
+            self.table.update_item(
+                Key={'instance_date': key},
+                UpdateExpression=update_expr,
+                ExpressionAttributeValues=values,
+            )
+        except Exception as e:
+            print(f"Traffic record error: {e}")
+
+    def get_stats(self, days: int = 7) -> List[Dict[str, Any]]:
+        from datetime import timedelta
+        cutoff = (datetime.utcnow() - timedelta(days=days)).strftime('%Y-%m-%d')
+        try:
+            resp = self.table.scan()
+            results = []
+            for item in resp.get('Items', []):
+                key = item.get('instance_date', '')
+                if '#' not in key:
+                    continue
+                instance, date = key.split('#', 1)
+                if date < cutoff:
+                    continue
+                users = item.get('users')
+                results.append({
+                    'instance': instance,
+                    'date': date,
+                    'requests': int(item.get('requests', 0)),
+                    'unique_users': len(users) if users else 0,
+                    'last_request_at': item.get('last_request_at'),
+                })
+            results.sort(key=lambda x: (x['date'], x['instance']), reverse=True)
+            return results
+        except Exception as e:
+            print(f"Traffic stats query error: {e}")
+            return []
+
+
+traffic_stats = TrafficStatsDB()

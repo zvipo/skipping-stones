@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from datetime import datetime, timedelta
 import jwt
 import json
-from database import db
+from database import db, traffic_stats
 from solver import get_hint, solve, _board_to_bits, _bits_to_board
 from solver_cache import solver_cache
 from solver_queue import solver_queue
@@ -49,6 +49,25 @@ try:
 except Exception as e:
     print(f"Solver queue initialization error: {e}")
 
+# Initialize traffic stats
+try:
+    traffic_stats.create_table_if_not_exists()
+except Exception as e:
+    print(f"Traffic stats initialization error: {e}")
+
+# Identifies which deployment is recording traffic ('render', 'pi', etc.)
+DEPLOY_NAME = os.getenv('DEPLOY_NAME', 'unknown')
+
+TRAFFIC_SKIP_PREFIXES = ('/static/',)
+TRAFFIC_SKIP_PATHS = {
+    '/favicon.ico',
+    '/api/auth/status',
+    '/api/auth/refresh-session',
+    '/api/auth/debug-session',
+    '/api/debug/performance',
+    '/api/stats/traffic',
+}
+
 # Google OIDC configuration
 GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
 GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
@@ -70,6 +89,20 @@ request_count = 0  # Track total requests for monitoring
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
+
+# Per-request traffic counter (best-effort; never blocks the request on failure)
+@app.before_request
+def record_traffic():
+    path = request.path
+    if path in TRAFFIC_SKIP_PATHS:
+        return
+    if any(path.startswith(p) for p in TRAFFIC_SKIP_PREFIXES):
+        return
+    user_id = current_user.id if current_user.is_authenticated else None
+    try:
+        traffic_stats.record_request(DEPLOY_NAME, user_id)
+    except Exception as e:
+        print(f"Traffic hook error: {e}")
 
 # Security headers middleware
 @app.after_request
@@ -703,6 +736,19 @@ def debug_performance():
         'active_sessions': len(session_activity),
         'memory_usage_mb': len(users_db) * 0.001,  # Rough estimate
         'worker_info': 'Single worker - handles multiple users efficiently'
+    }), 200
+
+@app.route('/api/stats/traffic')
+def stats_traffic():
+    """Per-instance per-day traffic counts. Used to compare load across deployments."""
+    try:
+        days = max(1, min(int(request.args.get('days', 7)), 30))
+    except (TypeError, ValueError):
+        days = 7
+    return jsonify({
+        'this_instance': DEPLOY_NAME,
+        'days': days,
+        'rows': traffic_stats.get_stats(days),
     }), 200
 
 @app.route('/api/auth/status')
