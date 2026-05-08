@@ -66,6 +66,7 @@ TRAFFIC_SKIP_PATHS = {
     '/api/auth/debug-session',
     '/api/debug/performance',
     '/api/stats/traffic',
+    '/traffic',
 }
 
 # Google OIDC configuration
@@ -738,18 +739,45 @@ def debug_performance():
         'worker_info': 'Single worker - handles multiple users efficiently'
     }), 200
 
+def _traffic_payload(days: int):
+    rows = traffic_stats.get_stats(days)
+    instance_totals = {}
+    for row in rows:
+        agg = instance_totals.setdefault(row['instance'], {'requests': 0, 'unique_users': 0})
+        agg['requests'] += row['requests']
+        agg['unique_users'] = max(agg['unique_users'], row['unique_users'])
+    return rows, instance_totals
+
+def _parse_days(default=7, cap=30):
+    try:
+        return max(1, min(int(request.args.get('days', default)), cap))
+    except (TypeError, ValueError):
+        return default
+
 @app.route('/api/stats/traffic')
 def stats_traffic():
     """Per-instance per-day traffic counts. Used to compare load across deployments."""
-    try:
-        days = max(1, min(int(request.args.get('days', 7)), 30))
-    except (TypeError, ValueError):
-        days = 7
+    days = _parse_days()
+    rows, instance_totals = _traffic_payload(days)
     return jsonify({
         'this_instance': DEPLOY_NAME,
         'days': days,
-        'rows': traffic_stats.get_stats(days),
+        'rows': rows,
+        'instance_totals': instance_totals,
     }), 200
+
+@app.route('/traffic')
+def traffic_page():
+    """Browser-friendly view of /api/stats/traffic."""
+    days = _parse_days()
+    rows, instance_totals = _traffic_payload(days)
+    return render_template(
+        'traffic.html',
+        this_instance=DEPLOY_NAME,
+        days=days,
+        rows=rows,
+        instance_totals=instance_totals,
+    )
 
 @app.route('/api/auth/status')
 def auth_status():
