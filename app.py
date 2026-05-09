@@ -94,6 +94,10 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 
+# User-Agent substrings that identify automated/bot traffic we don't want in stats.
+# Match is case-insensitive substring on the UA header. Add more as needed.
+TRAFFIC_SKIP_UA_SUBSTRINGS = ('uptime-kuma',)
+
 # Per-request traffic counter (best-effort; never blocks the request on failure)
 @app.before_request
 def record_traffic():
@@ -101,6 +105,9 @@ def record_traffic():
     if path in TRAFFIC_SKIP_PATHS:
         return
     if any(path.startswith(p) for p in TRAFFIC_SKIP_PREFIXES):
+        return
+    ua = (request.headers.get('User-Agent') or '').lower()
+    if any(s in ua for s in TRAFFIC_SKIP_UA_SUBSTRINGS):
         return
     try:
         traffic_stats.record_request(DEPLOY_NAME)
