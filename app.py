@@ -1,7 +1,9 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, send_file, Response
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from werkzeug.middleware.proxy_fix import ProxyFix
 import requests
 import os
+import hashlib
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 import jwt
@@ -22,6 +24,10 @@ load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'your-secret-key-change-this')
+
+# One reverse proxy in front (Caddy on Pi, Render's LB on Render). Trust X-Forwarded-For
+# from that single hop so request.remote_addr reflects the real client.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 # Configure session to be more persistent but with reasonable limits
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=24)  # 24 hours instead of 30 days
@@ -91,6 +97,14 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 
+def _visitor_hash():
+    """Stable, privacy-preserving fingerprint of the client IP. SHA-256 salted with
+    SECRET_KEY, truncated to 16 hex chars so the SS in DynamoDB stays compact."""
+    ip = request.remote_addr or ''
+    if not ip:
+        return None
+    return hashlib.sha256((app.secret_key + ip).encode('utf-8')).hexdigest()[:16]
+
 # Per-request traffic counter (best-effort; never blocks the request on failure)
 @app.before_request
 def record_traffic():
@@ -99,14 +113,8 @@ def record_traffic():
         return
     if any(path.startswith(p) for p in TRAFFIC_SKIP_PREFIXES):
         return
-    # Read user id from the signed Flask session rather than current_user — the
-    # latter goes anonymous after restarts because users_db is in-memory and the
-    # user_loader can't reconstitute the User. The session's _user_id is set by
-    # Flask-Login on login and cleared on logout, and the signed cookie is
-    # tamper-resistant under SECRET_KEY.
-    user_id = session.get('_user_id')
     try:
-        traffic_stats.record_request(DEPLOY_NAME, user_id)
+        traffic_stats.record_request(DEPLOY_NAME, _visitor_hash())
     except Exception as e:
         print(f"Traffic hook error: {e}")
 
@@ -748,9 +756,11 @@ def _traffic_payload(days: int):
     rows = traffic_stats.get_stats(days)
     instance_totals = {}
     for row in rows:
-        agg = instance_totals.setdefault(row['instance'], {'requests': 0, 'unique_users': 0})
+        agg = instance_totals.setdefault(row['instance'], {'requests': 0, 'unique_visitors': 0})
         agg['requests'] += row['requests']
-        agg['unique_users'] = max(agg['unique_users'], row['unique_users'])
+        # Using max as a conservative estimate — true cross-day uniques would require
+        # unioning the daily SS, which we don't expose from get_stats.
+        agg['unique_visitors'] = max(agg['unique_visitors'], row['unique_visitors'])
     return rows, instance_totals
 
 def _parse_days(default=7, cap=30):
