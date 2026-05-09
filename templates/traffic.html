@@ -13,7 +13,7 @@
             <form method="get" class="d-flex align-items-center gap-2">
                 <label for="days" class="mb-0 small">Days</label>
                 <select id="days" name="days" class="form-select form-select-sm" onchange="this.form.submit()" style="width: auto;">
-                    {% for d in [1, 7, 14, 30] %}
+                    {% for d in [7, 14, 30] %}
                         <option value="{{ d }}" {% if d == days %}selected{% endif %}>{{ d }}</option>
                     {% endfor %}
                 </select>
@@ -26,7 +26,7 @@
                 <div class="border rounded p-3 h-100" style="background: rgba(255,255,255,0.5);">
                     <div class="text-muted small text-uppercase">{{ instance }}</div>
                     <div class="fs-3 fw-bold">{{ totals.requests }}</div>
-                    <div class="small">requests · {{ totals.unique_visitors }} unique visitor{{ '' if totals.unique_visitors == 1 else 's' }}</div>
+                    <div class="small text-muted">requests in window</div>
                 </div>
             </div>
             {% endfor %}
@@ -35,37 +35,54 @@
             {% endif %}
         </div>
 
-        <div class="table-responsive">
-            <table class="table table-sm table-striped align-middle mb-0">
-                <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th>Instance</th>
-                        <th class="text-end">Requests</th>
-                        <th class="text-end">Unique visitors</th>
-                        <th>Last request (UTC)</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for row in rows %}
-                    <tr>
-                        <td>{{ row.date }}</td>
-                        <td><code>{{ row.instance }}</code></td>
-                        <td class="text-end">{{ row.requests }}</td>
-                        <td class="text-end">{{ row.unique_visitors }}</td>
-                        <td><small class="text-muted">{{ row.last_request_at or '' }}</small></td>
-                    </tr>
-                    {% else %}
-                    <tr><td colspan="5" class="text-center text-muted py-3">No data yet.</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+        <div style="position: relative; height: 380px;">
+            <canvas id="trafficChart"></canvas>
         </div>
 
         <div class="text-muted small mt-3">
-            Counters increment in DynamoDB on every non-static, non-health-check request.
             JSON: <a href="{{ url_for('stats_traffic') }}?days={{ days }}"><code>/api/stats/traffic?days={{ days }}</code></a>
         </div>
     </div>
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+    (function() {
+        const data = {{ chart_data | tojson }};
+        if (!data || !data.datasets || data.datasets.length === 0) {
+            return;
+        }
+        const palette = {
+            pi: '#16a34a',
+            render: '#2563eb',
+            unknown: '#94a3b8',
+        };
+        data.datasets.forEach(ds => {
+            const color = palette[ds.label] || '#dc2626';
+            ds.borderColor = color;
+            ds.backgroundColor = color + '33';
+            ds.tension = 0.25;
+            ds.fill = false;
+            ds.pointRadius = 3;
+        });
+        const ctx = document.getElementById('trafficChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'line',
+            data: data,
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { position: 'bottom' },
+                    tooltip: { callbacks: { title: items => items[0].label } }
+                },
+                scales: {
+                    y: { beginAtZero: true, ticks: { precision: 0 }, title: { display: true, text: 'Requests' } },
+                    x: { title: { display: true, text: 'Date (UTC)' } }
+                }
+            }
+        });
+    })();
+</script>
 {% endblock %}

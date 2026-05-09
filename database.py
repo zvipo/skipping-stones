@@ -466,8 +466,7 @@ db = GameStateDB()
 class TrafficStatsDB:
     """Per-instance per-day request counter, used to compare load across deployments
     (e.g., Render vs the self-hosted Pi). Counters use atomic DynamoDB ADD so concurrent
-    requests don't lose updates. Authenticated user IDs are accumulated as a string set
-    so we can report unique-user counts in addition to raw request counts."""
+    requests never lose updates."""
 
     def __init__(self):
         self.dynamodb = boto3.resource('dynamodb')
@@ -489,20 +488,14 @@ class TrafficStatsDB:
             else:
                 raise e
 
-    def record_request(self, instance: str, visitor_hash: Optional[str] = None) -> None:
+    def record_request(self, instance: str) -> None:
         date = datetime.utcnow().strftime('%Y-%m-%d')
         key = f"{instance}#{date}"
-        add_clauses = ["requests :one"]
-        values = {':one': 1, ':now': datetime.utcnow().isoformat()}
-        if visitor_hash:
-            add_clauses.append("visitors :v")
-            values[':v'] = {visitor_hash}
-        update_expr = "ADD " + ", ".join(add_clauses) + " SET last_request_at = :now"
         try:
             self.table.update_item(
                 Key={'instance_date': key},
-                UpdateExpression=update_expr,
-                ExpressionAttributeValues=values,
+                UpdateExpression="ADD requests :one SET last_request_at = :now",
+                ExpressionAttributeValues={':one': 1, ':now': datetime.utcnow().isoformat()},
             )
         except Exception as e:
             print(f"Traffic record error: {e}")
@@ -520,12 +513,10 @@ class TrafficStatsDB:
                 instance, date = key.split('#', 1)
                 if date < cutoff:
                     continue
-                visitors = item.get('visitors')
                 results.append({
                     'instance': instance,
                     'date': date,
                     'requests': int(item.get('requests', 0)),
-                    'unique_visitors': len(visitors) if visitors else 0,
                     'last_request_at': item.get('last_request_at'),
                 })
             results.sort(key=lambda x: (x['date'], x['instance']), reverse=True)

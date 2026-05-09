@@ -3,7 +3,6 @@ from flask_login import LoginManager, UserMixin, login_user, logout_user, login_
 from werkzeug.middleware.proxy_fix import ProxyFix
 import requests
 import os
-import hashlib
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 import jwt
@@ -97,14 +96,6 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 
-def _visitor_hash():
-    """Stable, privacy-preserving fingerprint of the client IP. SHA-256 salted with
-    SECRET_KEY, truncated to 16 hex chars so the SS in DynamoDB stays compact."""
-    ip = request.remote_addr or ''
-    if not ip:
-        return None
-    return hashlib.sha256((app.secret_key + ip).encode('utf-8')).hexdigest()[:16]
-
 # Per-request traffic counter (best-effort; never blocks the request on failure)
 @app.before_request
 def record_traffic():
@@ -114,7 +105,7 @@ def record_traffic():
     if any(path.startswith(p) for p in TRAFFIC_SKIP_PREFIXES):
         return
     try:
-        traffic_stats.record_request(DEPLOY_NAME, _visitor_hash())
+        traffic_stats.record_request(DEPLOY_NAME)
     except Exception as e:
         print(f"Traffic hook error: {e}")
 
@@ -756,12 +747,24 @@ def _traffic_payload(days: int):
     rows = traffic_stats.get_stats(days)
     instance_totals = {}
     for row in rows:
-        agg = instance_totals.setdefault(row['instance'], {'requests': 0, 'unique_visitors': 0})
+        agg = instance_totals.setdefault(row['instance'], {'requests': 0})
         agg['requests'] += row['requests']
-        # Using max as a conservative estimate — true cross-day uniques would require
-        # unioning the daily SS, which we don't expose from get_stats.
-        agg['unique_visitors'] = max(agg['unique_visitors'], row['unique_visitors'])
     return rows, instance_totals
+
+def _chart_data(rows, days):
+    """Pivot rows into a Chart.js dataset: one continuous date axis, one series per instance."""
+    today = datetime.utcnow().date()
+    all_dates = [(today - timedelta(days=i)).isoformat() for i in range(days - 1, -1, -1)]
+    by_pair = {(r['instance'], r['date']): r['requests'] for r in rows}
+    instances = sorted({r['instance'] for r in rows})
+    datasets = [
+        {
+            'label': instance,
+            'data': [by_pair.get((instance, d), 0) for d in all_dates],
+        }
+        for instance in instances
+    ]
+    return {'labels': all_dates, 'datasets': datasets}
 
 def _parse_days(default=7, cap=30):
     try:
@@ -783,15 +786,15 @@ def stats_traffic():
 
 @app.route('/traffic')
 def traffic_page():
-    """Browser-friendly view of /api/stats/traffic."""
+    """Browser-friendly view of /api/stats/traffic — line chart per instance."""
     days = _parse_days()
     rows, instance_totals = _traffic_payload(days)
     return render_template(
         'traffic.html',
         this_instance=DEPLOY_NAME,
         days=days,
-        rows=rows,
         instance_totals=instance_totals,
+        chart_data=_chart_data(rows, days),
     )
 
 @app.route('/api/auth/status')
