@@ -20,6 +20,7 @@ services:
       - "443:443"
     environment:
       - DUCKDNS_HOSTNAME=${DUCKDNS_HOSTNAME}
+      - STATUS_HOSTNAME=${STATUS_HOSTNAME}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -28,6 +29,18 @@ services:
       - web
     depends_on:
       - app
+      - uptimekuma
+
+  uptimekuma:
+    image: louislam/uptime-kuma:1
+    container_name: uptimekuma
+    restart: unless-stopped
+    expose:
+      - "3001"
+    volumes:
+      - uptimekuma_data:/app/data
+    networks:
+      - web
 
 networks:
   web:
@@ -35,3 +48,4 @@ networks:
 volumes:
   caddy_data:
   caddy_config:
+  uptimekuma_data:
