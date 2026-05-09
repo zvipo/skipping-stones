@@ -1,4 +1,6 @@
 {$DUCKDNS_HOSTNAME} {
     encode gzip
+    header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    header -Server
     reverse_proxy app:5000
 }
