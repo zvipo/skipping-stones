@@ -68,8 +68,6 @@ TRAFFIC_SKIP_PATHS = {
     '/favicon.ico',
     '/api/auth/status',
     '/api/auth/refresh-session',
-    '/api/auth/debug-session',
-    '/api/debug/performance',
     '/api/stats/traffic',
     '/traffic',
 }
@@ -716,32 +714,6 @@ def complete_level():
             
     except Exception as e:
         return jsonify({'error': 'Internal server error'}), 500
-
-@app.route('/api/auth/debug-session')
-def debug_session():
-    """Debug endpoint to check session configuration"""
-    return jsonify({
-        'session_id': session.get('_id', 'No session ID'),
-        'session_permanent': session.permanent,
-        'session_modified': session.modified,
-        'user_authenticated': current_user.is_authenticated,
-        'user_id': current_user.id if current_user.is_authenticated else None,
-        'session_lifetime': str(app.config['PERMANENT_SESSION_LIFETIME']),
-        'session_cookie_secure': app.config['SESSION_COOKIE_SECURE'],
-        'session_cookie_httponly': app.config['SESSION_COOKIE_HTTPONLY'],
-        'session_cookie_samesite': app.config['SESSION_COOKIE_SAMESITE']
-    }), 200
-
-@app.route('/api/debug/performance')
-def debug_performance():
-    """Debug endpoint to check performance metrics"""
-    global request_count
-    return jsonify({
-        'total_requests': request_count,
-        'active_sessions': len(session_activity),
-        'memory_usage_mb': len(users_db) * 0.001,  # Rough estimate
-        'worker_info': 'Single worker - handles multiple users efficiently'
-    }), 200
 
 def _traffic_payload(days: int):
     rows = traffic_stats.get_stats(days)

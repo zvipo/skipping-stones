@@ -118,18 +118,7 @@ def test_logout_functionality():
         print(f"✗ Auth status endpoint failed: {e}")
         return False
     
-    # Test 3: Check debug session endpoint
-    try:
-        response = requests.get(f"{base_url}/api/auth/debug-session")
-        session_data = response.json()
-        print(f"✓ Debug session endpoint working")
-        print(f"  - Session ID: {session_data.get('session_id', 'None')}")
-        print(f"  - User authenticated: {session_data.get('user_authenticated', False)}")
-    except Exception as e:
-        print(f"✗ Debug session endpoint failed: {e}")
-        return False
-    
-    # Test 4: Check game configs endpoint
+    # Test 3: Check game configs endpoint
     try:
         response = requests.get(f"{base_url}/api/skipping-stones/configs")
         configs = response.json()
