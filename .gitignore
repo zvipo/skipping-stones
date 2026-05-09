@@ -205,3 +205,6 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Security review reports — contain IAM ARNs, port maps, infra detail
+SECURITY_REVIEW.md
