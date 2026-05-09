@@ -8,7 +8,10 @@
         <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
             <div>
                 <h2 class="mb-0">Traffic</h2>
-                <small class="text-muted">Served by <code>{{ this_instance }}</code> · last {{ days }} day(s)</small>
+                <small class="text-muted">
+                    Last {{ days }} day(s) · combined across deployments
+                    <span class="badge bg-secondary ms-1" title="The deployment that rendered this page">page rendered by {{ this_instance }}</span>
+                </small>
             </div>
             <form method="get" class="d-flex align-items-center gap-2">
                 <label for="days" class="mb-0 small">Days</label>
