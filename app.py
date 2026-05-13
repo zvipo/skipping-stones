@@ -1,5 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, send_file, Response
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from werkzeug.middleware.proxy_fix import ProxyFix
 import requests
 import os
@@ -93,6 +95,14 @@ request_count = 0  # Track total requests for monitoring
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
+
+# Rate limiter — in-memory store (single gunicorn worker, so per-process state is global).
+# No global limits; applied per-route. Key = real client IP (request.remote_addr, via ProxyFix).
+limiter = Limiter(get_remote_address, app=app, storage_uri="memory://")
+
+@app.errorhandler(429)
+def ratelimit_exceeded(e):
+    return jsonify({'type': 'result', 'hint': None, 'rate_limited': True}), 429
 
 # User-Agent substrings that identify automated/bot traffic we don't want in stats.
 # Match is case-insensitive substring on the UA header. Add more as needed.
@@ -527,6 +537,7 @@ def get_game_configs():
     })
 
 @app.route('/api/skipping-stones/hint', methods=['POST'])
+@limiter.limit("12 per minute; 100 per hour")
 def get_game_hint():
     import threading
     import queue as queue_mod
