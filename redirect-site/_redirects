@@ -1,0 +1,3 @@
+# Render static-site redirect rules (Netlify-style syntax).
+# Permanently send every path to the Pi-hosted app, preserving path + query via :splat.
+/*    https://skipping-stones.duckdns.org/:splat    301
